@@ -10,7 +10,12 @@ public class CameraController : MonoBehaviour
     
     [Header("Rotation Settings")]
     public float rotationSpeed = 2f;
+<<<<<<< HEAD
     public float verticalAngleLimit = 80f;
+=======
+    public float verticalAngleLimit = 80f; // Yukarı sınır
+    public float downwardAngleLimit = 10f;  // Aşağı sınır - YENİ!
+>>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
     
     [Header("Smooth Settings")]
     public float rotationSmoothness = 5f;
@@ -29,7 +34,10 @@ public class CameraController : MonoBehaviour
     private bool isResetting = false;
     private float resetProgress = 0f;
     
+<<<<<<< HEAD
     // Reset için başlangıç değerleri
+=======
+>>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
     private float resetStartX, resetStartY, resetStartDistance;
     private Vector3 defaultEulerAngles;
     
@@ -75,7 +83,13 @@ public class CameraController : MonoBehaviour
             
             targetX += mouseX * rotationSpeed;
             targetY -= mouseY * rotationSpeed;
+<<<<<<< HEAD
             targetY = Mathf.Clamp(targetY, -verticalAngleLimit, verticalAngleLimit);
+=======
+            
+            // Hem yukarı hem aşağı açıyı sınırla
+            targetY = Mathf.Clamp(targetY, -downwardAngleLimit, verticalAngleLimit);
+>>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
         }
         
         if (Input.touchCount == 1)
@@ -85,7 +99,11 @@ public class CameraController : MonoBehaviour
             {
                 targetX += touch.deltaPosition.x * rotationSpeed * 0.02f;
                 targetY -= touch.deltaPosition.y * rotationSpeed * 0.02f;
+<<<<<<< HEAD
                 targetY = Mathf.Clamp(targetY, -verticalAngleLimit, verticalAngleLimit);
+=======
+                targetY = Mathf.Clamp(targetY, -downwardAngleLimit, verticalAngleLimit);
+>>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
             }
         }
     }
@@ -130,12 +148,18 @@ public class CameraController : MonoBehaviour
         isResetting = true;
         resetProgress = 0f;
         
+<<<<<<< HEAD
         // Mevcut değerleri kaydet
+=======
+>>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
         resetStartX = currentX;
         resetStartY = currentY;
         resetStartDistance = distance;
         
+<<<<<<< HEAD
         // Hedef değerleri ayarla
+=======
+>>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
         targetX = defaultEulerAngles.y;
         targetY = defaultEulerAngles.x;
         targetDistance = CalculateDefaultDistance();
@@ -143,7 +167,10 @@ public class CameraController : MonoBehaviour
     
     float CalculateDefaultDistance()
     {
+<<<<<<< HEAD
         // Default pozisyon ile target arasındaki mesafe
+=======
+>>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
         if (target != null)
             return Vector3.Distance(defaultPosition, target.position);
         return 15f;
@@ -158,7 +185,10 @@ public class CameraController : MonoBehaviour
             resetProgress = 1f;
             isResetting = false;
             
+<<<<<<< HEAD
             // Son değerleri kesin olarak ayarla
+=======
+>>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
             currentX = targetX;
             currentY = targetY;
             distance = targetDistance;
@@ -170,7 +200,10 @@ public class CameraController : MonoBehaviour
     {
         if (isResetting)
         {
+<<<<<<< HEAD
             // Reset sırasında SADECE rotation ve distance'ı smooth geçiş yap
+=======
+>>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
             float smoothProgress = SmoothStep(resetProgress);
             
             currentX = Mathf.LerpAngle(resetStartX, targetX, smoothProgress);
@@ -181,7 +214,10 @@ public class CameraController : MonoBehaviour
         }
         else
         {
+<<<<<<< HEAD
             // Normal smooth movement
+=======
+>>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
             currentX = Mathf.LerpAngle(currentX, targetX, rotationSmoothness * Time.deltaTime);
             currentY = Mathf.LerpAngle(currentY, targetY, rotationSmoothness * Time.deltaTime);
             distance = Mathf.Lerp(distance, targetDistance, zoomSmoothness * Time.deltaTime);
@@ -192,7 +228,10 @@ public class CameraController : MonoBehaviour
     
     float SmoothStep(float t)
     {
+<<<<<<< HEAD
         // Daha smooth bir easing function
+=======
+>>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
         return t * t * t * (t * (6f * t - 15f) + 10f);
     }
     

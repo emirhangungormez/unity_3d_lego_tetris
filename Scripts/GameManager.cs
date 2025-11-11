@@ -4,10 +4,18 @@ using System.Collections.Generic;
 public class GameManager : MonoBehaviour
 {
     public GridManager gridManager;
+    public EffectManager effectManager;
     public List<GameObject> brickPrefabs;
-    public float fallSpeed = 8f;
     
-    // Tiling/Offset renk sistemi
+    [Header("Fall Animation Settings")]
+    public float initialFallSpeed = 2f;
+    public float maxFallSpeed = 15f;
+    public float accelerationRate = 8f;
+    public float decelerationDistance = 3f;
+    public float snapSpeed = 1f;
+    public float settleOvershoot = 0.1f;
+    public float settleDuration = 0.4f;
+    
     public enum BrickColor { Orange, Blue, Pink, Purple, Green, White, Gray, Brown, Black }
     
     [System.Serializable]
@@ -32,15 +40,27 @@ public class GameManager : MonoBehaviour
     };
     
     private GameObject currentBrick;
-    private List<GameObject> landedBricks = new List<GameObject>();
+    public List<GameObject> landedBricks = new List<GameObject>(); 
     private Vector2Int currentGridPosition;
     private Vector2Int brickSize;
     private bool isFalling = false;
     private bool hasLanded = false;
     private float startYPosition = 10f;
     
+    private float currentFallSpeed;
+    private bool isDecelerating = false;
+    private bool isSnapping = false;
+    private bool isSettling = false;
+    private float settleTimer = 0f;
+    private float targetSettleY = 0f;
+    private float overshootY = 0f;
+    
+    // Public property for EffectManager access
+    public List<GameObject> LandedBricks => landedBricks;
+    
     void Start()
     {
+        currentFallSpeed = initialFallSpeed;
         SpawnNewBrick();
     }
     
@@ -67,6 +87,11 @@ public class GameManager : MonoBehaviour
     {
         isFalling = false;
         hasLanded = false;
+        isDecelerating = false;
+        isSnapping = false;
+        isSettling = false;
+        currentFallSpeed = initialFallSpeed;
+        settleTimer = 0f;
         
         List<GameObject> suitableBricks = GetSuitableBricks();
         
@@ -83,8 +108,6 @@ public class GameManager : MonoBehaviour
         ApplyRandomTexture(currentBrick);
         CalculateBrickSize();
         InitializeBrickPosition();
-        
-        Debug.Log($"Yeni brick: {brickSize.x}x{brickSize.y} - Grid pozisyonu: {currentGridPosition}");
     }
     
     void ApplyRandomTexture(GameObject brick)
@@ -95,7 +118,6 @@ public class GameManager : MonoBehaviour
             return;
         }
         
-        // TÜM child renderer'ları bul
         Renderer[] allRenderers = brick.GetComponentsInChildren<Renderer>(true);
         
         if (allRenderers.Length == 0)
@@ -106,24 +128,17 @@ public class GameManager : MonoBehaviour
         
         ColorSettings randomColorSettings = availableColors[Random.Range(0, availableColors.Count)];
         
-        Debug.Log($"Bulunan renderer sayısı: {allRenderers.Length} - Uygulanacak renk: {randomColorSettings.colorType}");
-        
         foreach (Renderer renderer in allRenderers)
         {
             if (renderer == null) continue;
             
-            // Yeni material oluştur
             Material newMaterial = new Material(renderer.material);
             newMaterial.name = "BrickMaterial_" + randomColorSettings.colorType.ToString();
             
-            // Tiling ve offset ayarla
             newMaterial.mainTextureScale = randomColorSettings.tiling;
             newMaterial.mainTextureOffset = randomColorSettings.offset;
             
-            // Renderer'a yeni material'ı ata
             renderer.material = newMaterial;
-            
-            Debug.Log($"Renderer '{renderer.gameObject.name}' material değiştirildi - Tiling: {randomColorSettings.tiling}");
         }
     }
     
@@ -143,8 +158,6 @@ public class GameManager : MonoBehaviour
         AdjustPositionAfterRotation(newSize);
         
         brickSize = newSize;
-        
-        Debug.Log($"Brick döndürüldü: {brickSize.x}x{brickSize.y}");
     }
     
     void AdjustPositionAfterRotation(Vector2Int newSize)
@@ -242,34 +255,140 @@ public class GameManager : MonoBehaviour
     void StartFalling()
     {
         isFalling = true;
+        isDecelerating = false;
+        isSnapping = false;
+        isSettling = false;
+        currentFallSpeed = initialFallSpeed;
+        settleTimer = 0f;
     }
     
     void HandleFalling()
     {
         float targetY = gridManager.GetRequiredHeight(currentGridPosition, brickSize);
-        
         Vector3 currentPos = currentBrick.transform.position;
-        float newY = Mathf.MoveTowards(currentPos.y, targetY, fallSpeed * Time.deltaTime);
+        float distanceToTarget = Mathf.Abs(currentPos.y - targetY);
         
-        currentBrick.transform.position = new Vector3(currentPos.x, newY, currentPos.z);
-        
-        if (Mathf.Approximately(newY, targetY))
+        if (!isDecelerating && distanceToTarget <= decelerationDistance)
         {
-            OnBrickLanded();
+            isDecelerating = true;
+            targetSettleY = targetY;
+        }
+        
+        if (!isDecelerating)
+        {
+            currentFallSpeed = Mathf.Min(currentFallSpeed + accelerationRate * Time.deltaTime, maxFallSpeed);
+        }
+        else if (!isSnapping && !isSettling)
+        {
+            float decelerationProgress = 1f - (distanceToTarget / decelerationDistance);
+            currentFallSpeed = Mathf.Lerp(maxFallSpeed, snapSpeed, decelerationProgress * decelerationProgress);
+            
+            if (distanceToTarget < 0.2f)
+            {
+                isSnapping = true;
+                overshootY = targetY + settleOvershoot;
+            }
+        }
+        
+        if (isSnapping && !isSettling)
+        {
+            float newY = Mathf.MoveTowards(currentPos.y, overshootY, snapSpeed * Time.deltaTime);
+            currentBrick.transform.position = new Vector3(currentPos.x, newY, currentPos.z);
+            
+            if (Mathf.Abs(newY - overshootY) < 0.01f)
+            {
+                isSettling = true;
+                settleTimer = 0f;
+            }
+        }
+        else if (isSettling)
+        {
+            settleTimer += Time.deltaTime;
+            float settleProgress = Mathf.Clamp01(settleTimer / settleDuration);
+            
+            float smoothProgress = 1f - Mathf.Pow(1f - settleProgress, 3f);
+            float newY = Mathf.Lerp(overshootY, targetSettleY, smoothProgress);
+            
+            currentBrick.transform.position = new Vector3(currentPos.x, newY, currentPos.z);
+            
+            if (settleProgress >= 1f)
+            {
+                OnBrickLanded();
+            }
+            
+            return;
+        }
+        else
+        {
+            float newY = Mathf.MoveTowards(currentPos.y, targetY, currentFallSpeed * Time.deltaTime);
+            currentBrick.transform.position = new Vector3(currentPos.x, newY, currentPos.z);
+            
+            if (Mathf.Approximately(newY, targetY))
+            {
+                OnBrickLanded();
+            }
         }
     }
     
     void OnBrickLanded()
     {
-        gridManager.UpdateHeightMap(currentGridPosition, brickSize);
-        
-        isFalling = false;
-        hasLanded = true;
-        
         landedBricks.Add(currentBrick);
         currentBrick.name = $"LandedBrick_{landedBricks.Count}";
         
-        SpawnNewBrick();
+        gridManager.PlaceBrick(currentGridPosition, brickSize, currentBrick);
+        
+        CheckForCompletedLayers();
+        
+        isFalling = false;
+        hasLanded = true;
+        isDecelerating = false;
+        isSnapping = false;
+        isSettling = false;
+        
+        Invoke("SpawnNewBrick", 0.2f);
+    }
+    
+    void CheckForCompletedLayers()
+    {
+        gridManager.PrintGridStatus();
+        
+        int highestLayer = gridManager.GetHighestLayer();
+        bool foundCompletedLayer = false;
+        
+        for(int layer = highestLayer; layer >= 0; layer--)
+        {
+            List<Vector2Int> completedPositions = gridManager.CheckCompletedLayer(layer);
+            
+            if(completedPositions != null)
+            {
+                Debug.Log($"🎉 KATMAN {layer} TAMAMLANDI! Efektler başlatılıyor...");
+                
+                // Tüm işlemleri EffectManager'a devret
+                effectManager.ClearLayerWithEffects(layer);
+                
+                foundCompletedLayer = true;
+                break;
+            }
+        }
+        
+        if(!foundCompletedLayer)
+        {
+            Debug.Log("❌ Hiçbir katman tamamlanmamış");
+        }
+    }
+    
+    // EffectManager için public metod
+    public Vector2Int GetBrickGridPosition(GameObject brick)
+    {
+        Vector3 worldPos = brick.transform.position;
+        
+        int gridX = Mathf.RoundToInt(worldPos.x / gridManager.cellSize);
+        int gridY = Mathf.RoundToInt(worldPos.z / gridManager.cellSize);
+        
+        gridX = Mathf.Clamp(gridX, 0, (int)gridManager.gridSize.x - 1);
+        gridY = Mathf.Clamp(gridY, 0, (int)gridManager.gridSize.y - 1);
+        
+        return new Vector2Int(gridX, gridY);
     }
     
     void MoveBrickToGrid(int x, int y)
