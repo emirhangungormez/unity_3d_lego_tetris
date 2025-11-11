@@ -7,13 +7,37 @@ public class GameManager : MonoBehaviour
     public List<GameObject> brickPrefabs;
     public float fallSpeed = 8f;
     
+    // Tiling/Offset renk sistemi
+    public enum BrickColor { Orange, Blue, Pink, Purple, Green, White, Gray, Brown, Black }
+    
+    [System.Serializable]
+    public class ColorSettings
+    {
+        public BrickColor colorType;
+        public Vector2 tiling = Vector2.one;
+        public Vector2 offset = Vector2.zero;
+    }
+    
+    public List<ColorSettings> availableColors = new List<ColorSettings>
+    {
+        new ColorSettings{ colorType = BrickColor.Orange, tiling = new Vector2(1f, -0.5f), offset = new Vector2(0f, 0.5f) },
+        new ColorSettings{ colorType = BrickColor.Blue,   tiling = new Vector2(1.1f, -0.5f), offset = new Vector2(0f, 0.5f) },
+        new ColorSettings{ colorType = BrickColor.Pink,   tiling = new Vector2(1.48f, -0.5f), offset = new Vector2(0f, 0.5f) },
+        new ColorSettings{ colorType = BrickColor.Purple, tiling = new Vector2(1.68f, 0f), offset = new Vector2(0f, 0.5f) },
+        new ColorSettings{ colorType = BrickColor.Green,  tiling = new Vector2(1.9f, -0.5f), offset = new Vector2(0f, 0.5f) },
+        new ColorSettings{ colorType = BrickColor.White,  tiling = new Vector2(1f, 0.5f), offset = new Vector2(0f, 0f) },
+        new ColorSettings{ colorType = BrickColor.Gray,   tiling = new Vector2(2f, 0.5f), offset = new Vector2(0f, 0f) },
+        new ColorSettings{ colorType = BrickColor.Brown,  tiling = new Vector2(0f, 0.5f), offset = new Vector2(0f, 0f) },
+        new ColorSettings{ colorType = BrickColor.Black,  tiling = new Vector2(0f, -0.5f), offset = new Vector2(0f, 0f) }
+    };
+    
     private GameObject currentBrick;
     private List<GameObject> landedBricks = new List<GameObject>();
     private Vector2Int currentGridPosition;
     private Vector2Int brickSize;
     private bool isFalling = false;
     private bool hasLanded = false;
-    private float startYPosition = 10f; // Yukarıda başlayacak
+    private float startYPosition = 10f;
     
     void Start()
     {
@@ -30,6 +54,7 @@ public class GameManager : MonoBehaviour
             {
                 HandleBrickMovement();
                 HandleFallInput();
+                HandleRotationInput();
             }
             else
             {
@@ -55,10 +80,83 @@ public class GameManager : MonoBehaviour
         currentBrick = Instantiate(randomBrickPrefab);
         currentBrick.name = "CurrentBrick";
         
+        ApplyRandomTexture(currentBrick);
         CalculateBrickSize();
         InitializeBrickPosition();
         
         Debug.Log($"Yeni brick: {brickSize.x}x{brickSize.y} - Grid pozisyonu: {currentGridPosition}");
+    }
+    
+    void ApplyRandomTexture(GameObject brick)
+    {
+        if (availableColors.Count == 0)
+        {
+            Debug.LogWarning("Renk listesi boş!");
+            return;
+        }
+        
+        // TÜM child renderer'ları bul
+        Renderer[] allRenderers = brick.GetComponentsInChildren<Renderer>(true);
+        
+        if (allRenderers.Length == 0)
+        {
+            Debug.LogError("Brick içinde hiç renderer bulunamadı!");
+            return;
+        }
+        
+        ColorSettings randomColorSettings = availableColors[Random.Range(0, availableColors.Count)];
+        
+        Debug.Log($"Bulunan renderer sayısı: {allRenderers.Length} - Uygulanacak renk: {randomColorSettings.colorType}");
+        
+        foreach (Renderer renderer in allRenderers)
+        {
+            if (renderer == null) continue;
+            
+            // Yeni material oluştur
+            Material newMaterial = new Material(renderer.material);
+            newMaterial.name = "BrickMaterial_" + randomColorSettings.colorType.ToString();
+            
+            // Tiling ve offset ayarla
+            newMaterial.mainTextureScale = randomColorSettings.tiling;
+            newMaterial.mainTextureOffset = randomColorSettings.offset;
+            
+            // Renderer'a yeni material'ı ata
+            renderer.material = newMaterial;
+            
+            Debug.Log($"Renderer '{renderer.gameObject.name}' material değiştirildi - Tiling: {randomColorSettings.tiling}");
+        }
+    }
+    
+    void HandleRotationInput()
+    {
+        if (Input.GetKeyDown(KeyCode.R))
+        {
+            RotateBrick();
+        }
+    }
+    
+    void RotateBrick()
+    {
+        currentBrick.transform.Rotate(0, 90, 0);
+        
+        Vector2Int newSize = new Vector2Int(brickSize.y, brickSize.x);
+        AdjustPositionAfterRotation(newSize);
+        
+        brickSize = newSize;
+        
+        Debug.Log($"Brick döndürüldü: {brickSize.x}x{brickSize.y}");
+    }
+    
+    void AdjustPositionAfterRotation(Vector2Int newSize)
+    {
+        int maxX = Mathf.Max(0, (int)gridManager.gridSize.x - newSize.x);
+        int maxY = Mathf.Max(0, (int)gridManager.gridSize.y - newSize.y);
+        
+        currentGridPosition.x = Mathf.Clamp(currentGridPosition.x, 0, maxX);
+        currentGridPosition.y = Mathf.Clamp(currentGridPosition.y, 0, maxY);
+        
+        Vector3 gridPosition = gridManager.GetGridPosition(currentGridPosition, newSize);
+        currentBrick.transform.position = new Vector3(gridPosition.x, currentBrick.transform.position.y, gridPosition.z);
     }
     
     List<GameObject> GetSuitableBricks()
@@ -106,7 +204,6 @@ public class GameManager : MonoBehaviour
     
     void InitializeBrickPosition()
     {
-        // Grid üzerinde rastgele pozisyon seç
         int maxX = Mathf.Max(0, (int)gridManager.gridSize.x - brickSize.x);
         int maxY = Mathf.Max(0, (int)gridManager.gridSize.y - brickSize.y);
         
@@ -115,11 +212,8 @@ public class GameManager : MonoBehaviour
             Random.Range(0, maxY + 1)
         );
         
-        // Grid pozisyonunu al ama Y'yi yüksekten başlat
         Vector3 gridPosition = gridManager.GetGridPosition(currentGridPosition, brickSize);
         currentBrick.transform.position = new Vector3(gridPosition.x, startYPosition, gridPosition.z);
-        
-        Debug.Log($"Brick grid pozisyonu: {currentGridPosition}, World: {gridPosition}");
     }
     
     void HandleBrickMovement()
@@ -148,12 +242,10 @@ public class GameManager : MonoBehaviour
     void StartFalling()
     {
         isFalling = true;
-        Debug.Log("Brick düşmeye başladı!");
     }
     
     void HandleFalling()
     {
-        // Gerçek hedef yüksekliği al (mevcut brick'lerin üzerine)
         float targetY = gridManager.GetRequiredHeight(currentGridPosition, brickSize);
         
         Vector3 currentPos = currentBrick.transform.position;
@@ -177,8 +269,6 @@ public class GameManager : MonoBehaviour
         landedBricks.Add(currentBrick);
         currentBrick.name = $"LandedBrick_{landedBricks.Count}";
         
-        Debug.Log($"Brick düştü! Yükseklik: {currentBrick.transform.position.y}");
-        
         SpawnNewBrick();
     }
     
@@ -187,7 +277,6 @@ public class GameManager : MonoBehaviour
         currentGridPosition = new Vector2Int(x, y);
         Vector3 gridPosition = gridManager.GetGridPosition(currentGridPosition, brickSize);
         
-        // Sadece XZ pozisyonunu güncelle, Y yüksekliğini koru
         currentBrick.transform.position = new Vector3(gridPosition.x, currentBrick.transform.position.y, gridPosition.z);
     }
 }

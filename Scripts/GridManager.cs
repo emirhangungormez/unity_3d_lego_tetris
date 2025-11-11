@@ -11,7 +11,6 @@ public class GridManager : MonoBehaviour
     void Start()
     {
         heightMap = new int[(int)gridSize.x, (int)gridSize.y];
-        // CenterGridAtOrigin()'i KALDIRDIK - Grid (0,0,0)'da başlayacak
     }
     
     public bool IsValidPosition(Vector2Int position, Vector2Int size)
@@ -24,7 +23,6 @@ public class GridManager : MonoBehaviour
     
     public Vector3 GetGridPosition(Vector2Int gridPos, Vector2Int size)
     {
-        // Doğrudan world position hesapla - transform kullanma
         Vector3 worldPos = new Vector3(
             gridPos.x * cellSize + (size.x * cellSize * 0.5f),
             0,
