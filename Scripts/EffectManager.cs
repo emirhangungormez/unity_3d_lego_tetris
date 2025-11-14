@@ -4,197 +4,124 @@ using System.Collections;
 
 public class EffectManager : MonoBehaviour
 {
-    [System.Serializable]
-    public class EffectSettings
-    {
-        public float layerClearDelay = 0.3f;
-        public float brickFallDuration = 0.6f;
-        public float particleLifetime = 10f;
-        public float flowSpeed = 20f;
-        public float randomForce = 2f;
-        public float gravityForce = 0.1f;
-    }
+    [Header("Layer Clear Effects")]
+    public float layerClearDelay = 0.3f;
+    public float brickFallDuration = 0.6f;
+    public float brickRemoveDuration = 0.3f;
     
-    [System.Serializable]
-    public class ParticleSettings
-    {
-        public GameObject brickParticlePrefab;
-        public int minParticles = 3;
-        public int maxParticles = 8;
-        public ParticleSystem clearEffectPrefab;
-        public AudioClip clearSound;
-    }
-
-    [System.Serializable]
-    public class CollectionBoxSettings
-    {
-        public GameObject boxPrefab;
-        public float spacing = 2f;
-        public float yPosition = -5f;
-        public int maxColumns = 3;
-    }
-
-    [Header("Settings")]
-    public EffectSettings effectSettings;
-    public ParticleSettings particleSettings;
-    public CollectionBoxSettings boxSettings;
+    [Header("Particle Brick Settings")]
+    public GameObject brickParticlePrefab; // 1x1 küçük brick prefab'ı
+    public int minParticles = 3;
+    public int maxParticles = 8;
+    public int poolSize = 50; // Object Pool boyutu
+    public float particleLifetime = 4f; // Biraz daha uzun süre
+    public float flowSpeed = 3f; // Akış hızını artırdım
+    public float randomForce = 0.3f; // ÇOK AZALTILDI (0.3f)
+    public float gravityForce = 0.5f; // Yerçekimi ekledim
+    public Transform collectionPoint; // Parçaların toplandığı nokta
+    
+    [Header("Visual Effects")]
+    public ParticleSystem clearEffectPrefab;
+    public AudioClip clearSound;
     
     private GameManager gameManager;
     private GridManager gridManager;
+    
+    // OBJECT POOLING Sistemi
+    private Queue<GameObject> particlePool = new Queue<GameObject>();
     private List<GameObject> activeParticles = new List<GameObject>();
+    
+    // Renk dağılımını takip etmek için (GameManager.ColorSettings kullanarak)
     private Dictionary<GameManager.BrickColor, int> layerColorDistribution = new Dictionary<GameManager.BrickColor, int>();
-    private Dictionary<GameManager.BrickColor, Transform> collectionBoxes = new Dictionary<GameManager.BrickColor, Transform>();
     private int totalBricksInLayer = 0;
-
+    
     void Start()
     {
         gameManager = FindObjectOfType<GameManager>();
         gridManager = FindObjectOfType<GridManager>();
         
-        CreateCollectionBoxes();
-    }
-
-    void Update()
-    {
-        if (Input.GetKeyDown(KeyCode.P))
-        {
-            DebugParticleStatus();
-        }
-    }
-    
-    void CreateCollectionBoxes()
-    {
-        // Önce eski kutuları temizle
-        foreach (var box in collectionBoxes.Values)
-        {
-            if (box != null) Destroy(box.gameObject);
-        }
-        collectionBoxes.Clear();
-
-        // Aktif renkleri al
-        List<GameManager.BrickColor> activeColors = GetActiveColors();
+        // Object Pool'u başlat
+        InitializeParticlePool();
         
-        if (activeColors.Count == 0) return;
-
-        // Grid merkezini hesapla
-        float gridCenterX = gridManager.gridSize.x * gridManager.cellSize * 0.5f;
-        float gridCenterZ = gridManager.gridSize.y * gridManager.cellSize * 0.5f;
-        Vector3 gridCenter = new Vector3(gridCenterX, boxSettings.yPosition, gridCenterZ);
-
-        // Matris düzeni için ayarlar
-        int maxColumns = boxSettings.maxColumns;
-        float spacing = boxSettings.spacing;
-        Vector3 boxScale = Vector3.one;
-
-        // Satır ve sütun sayılarını hesapla
-        int totalBoxes = activeColors.Count;
-        int rows = Mathf.CeilToInt((float)totalBoxes / maxColumns);
-        int columns = Mathf.Min(totalBoxes, maxColumns);
-
-        // Toplam genişlik ve derinlik hesapla
-        float totalWidth = (columns - 1) * spacing;
-        float totalDepth = (rows - 1) * spacing;
-
-        // Başlangıç pozisyonunu hesapla (merkezden)
-        float startX = gridCenter.x - totalWidth * 0.5f;
-        float startZ = gridCenter.z - totalDepth * 0.5f;
-
-        for (int i = 0; i < activeColors.Count; i++)
+        // Collection point yoksa oluştur
+        if (collectionPoint == null)
         {
-            GameManager.BrickColor color = activeColors[i];
-            
-            // Matris pozisyonunu hesapla
-            int row = i / maxColumns;
-            int column = i % maxColumns;
-            
-            Vector3 boxPosition = new Vector3(
-                startX + column * spacing,
-                boxSettings.yPosition,
-                startZ + row * spacing
-            );
-
-            CreateCollectionBox(color, boxPosition, boxScale);
+            CreateCollectionPoint();
         }
-
-        Debug.Log($"📦 {activeColors.Count} adet toplama kutusu oluşturuldu ({rows}x{columns} matris)");
     }
     
-    List<GameManager.BrickColor> GetActiveColors()
+    // OBJECT POOLING BAŞLANGICI
+    void InitializeParticlePool()
     {
-        List<GameManager.BrickColor> activeColors = new List<GameManager.BrickColor>();
-        HashSet<GameManager.BrickColor> usedColors = new HashSet<GameManager.BrickColor>();
-
-        // Landed brick'lerde kullanılan renkleri bul
-        foreach (GameObject brick in gameManager.landedBricks)
+        for (int i = 0; i < poolSize; i++)
         {
-            if (brick == null) continue;
-            
-            GameManager.BrickColor brickColor = GetBrickColor(brick);
-            if (!usedColors.Contains(brickColor))
-            {
-                usedColors.Add(brickColor);
-                activeColors.Add(brickColor);
-            }
+            GameObject particle = Instantiate(brickParticlePrefab);
+            particle.transform.SetParent(transform);
+            particle.SetActive(false);
+            particlePool.Enqueue(particle);
         }
-
-        // Eğer landed brick yoksa, available colors'dan al
-        if (activeColors.Count == 0)
-        {
-            foreach (var colorSetting in gameManager.availableColors)
-            {
-                activeColors.Add(colorSetting.colorType);
-            }
-        }
-
-        return activeColors;
+        Debug.Log($"🔄 Object Pool başlatıldı: {poolSize} parçacık");
     }
     
-    void CreateCollectionBox(GameManager.BrickColor color, Vector3 position, Vector3 scale)
+    // Pool'dan parçacık al
+    GameObject GetParticleFromPool()
     {
-        if (boxSettings.boxPrefab == null)
+        if (particlePool.Count > 0)
         {
-            Debug.LogError("Kutu prefab'ı atanmamış!");
-            return;
+            GameObject particle = particlePool.Dequeue();
+            particle.SetActive(true);
+            return particle;
         }
-
-        GameObject box = Instantiate(boxSettings.boxPrefab);
-        box.name = $"CollectionBox_{color}";
-        box.transform.position = position;
-        box.transform.localScale = scale;
-
-        // Kutuya renk uygula
-        ApplyBoxColor(box, color);
-
-        collectionBoxes[color] = box.transform;
-
-        Debug.Log($"🎯 {color} rengi için toplama kutusu oluşturuldu: {position}");
-    }
-    
-    void ApplyBoxColor(GameObject box, GameManager.BrickColor color)
-    {
-        GameManager.ColorSettings colorSettings = GetColorSettings(color);
         
-        foreach (Renderer renderer in box.GetComponentsInChildren<Renderer>())
+        // Pool boşsa yeni oluştur (acil durum)
+        Debug.LogWarning("⚠️ Particle pool boş, yeni parçacık oluşturuluyor");
+        GameObject newParticle = Instantiate(brickParticlePrefab);
+        return newParticle;
+    }
+    
+    // Parçacığı pool'a geri ver
+    void ReturnParticleToPool(GameObject particle)
+    {
+        if (particle == null) return;
+        
+        particle.SetActive(false);
+        particle.transform.SetParent(transform);
+        
+        // Fizik bileşenlerini sıfırla
+        Rigidbody rb = particle.GetComponent<Rigidbody>();
+        if (rb != null)
         {
-            if (renderer == null) continue;
-            
-            Material newMaterial = new Material(renderer.material);
-            newMaterial.name = $"BoxMaterial_{color}";
-            
-            newMaterial.mainTextureScale = colorSettings.tiling;
-            newMaterial.mainTextureOffset = colorSettings.offset;
-            
-            renderer.material = newMaterial;
+            rb.velocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
         }
+        
+        // Transform'u sıfırla
+        particle.transform.localPosition = Vector3.zero;
+        particle.transform.localRotation = Quaternion.identity;
+        particle.transform.localScale = Vector3.one;
+        
+        particlePool.Enqueue(particle);
+    }
+    
+    void CreateCollectionPoint()
+    {
+        GameObject point = new GameObject("ParticleCollectionPoint");
+        collectionPoint = point.transform;
+        collectionPoint.position = new Vector3(4f, -8f, 4f); // Daha aşağıda
     }
     
     public void ClearLayerWithEffects(int layer)
     {
         Debug.Log($"🎬 Layer {layer} temizleme efektleri başlatılıyor...");
         
+        // Önce renk dağılımını hesapla
         CalculateColorDistribution(layer);
+        
+        // 1. Önce üst katmanları aşağı kaydır
         StartCoroutine(MoveBricksDownCoroutine(layer));
-        StartCoroutine(RemoveLayerWithParticleEffectCoroutine(layer, effectSettings.brickFallDuration + effectSettings.layerClearDelay));
+        
+        // 2. Sonra bu layer'daki brick'leri parçacıklara dönüştür
+        StartCoroutine(RemoveLayerWithParticleEffectCoroutine(layer, brickFallDuration + layerClearDelay));
     }
     
     private void CalculateColorDistribution(int layer)
@@ -202,6 +129,7 @@ public class EffectManager : MonoBehaviour
         layerColorDistribution.Clear();
         totalBricksInLayer = 0;
         
+        // Layer'daki tüm brick'leri tara ve renk dağılımını hesapla
         foreach(GameObject brick in gameManager.landedBricks)
         {
             if (brick == null) continue;
@@ -211,13 +139,23 @@ public class EffectManager : MonoBehaviour
             
             if(brickLayer == layer)
             {
-                GameManager.BrickColor brickColor = GetBrickColor(brick);
-                layerColorDistribution[brickColor] = layerColorDistribution.GetValueOrDefault(brickColor) + 1;
+                // Brick'in rengini material'dan değil, GameManager'ın color sisteminden bul
+                GameManager.BrickColor brickColor = GetBrickColorFromName(brick);
+                
+                if (layerColorDistribution.ContainsKey(brickColor))
+                {
+                    layerColorDistribution[brickColor]++;
+                }
+                else
+                {
+                    layerColorDistribution[brickColor] = 1;
+                }
+                
                 totalBricksInLayer++;
             }
         }
         
-        // Debug log
+        // Renk dağılımını logla (debug için)
         Debug.Log($"🎨 Layer {layer} Renk Dağılımı:");
         foreach (var kvp in layerColorDistribution)
         {
@@ -226,39 +164,51 @@ public class EffectManager : MonoBehaviour
         }
     }
     
-    private GameManager.BrickColor GetBrickColor(GameObject brick)
+    private GameManager.BrickColor GetBrickColorFromName(GameObject brick)
     {
+        // Brick'in adından veya material adından rengi bul
         Renderer renderer = brick.GetComponentInChildren<Renderer>();
         if (renderer != null && renderer.material != null)
         {
             string materialName = renderer.material.name.ToLower();
-            return materialName switch
-            {
-                string s when s.Contains("orange") => GameManager.BrickColor.Orange,
-                string s when s.Contains("blue") => GameManager.BrickColor.Blue,
-                string s when s.Contains("pink") => GameManager.BrickColor.Pink,
-                string s when s.Contains("purple") => GameManager.BrickColor.Purple,
-                string s when s.Contains("green") => GameManager.BrickColor.Green,
-                string s when s.Contains("white") => GameManager.BrickColor.White,
-                string s when s.Contains("gray") => GameManager.BrickColor.Gray,
-                string s when s.Contains("brown") => GameManager.BrickColor.Brown,
-                string s when s.Contains("black") => GameManager.BrickColor.Black,
-                _ => (GameManager.BrickColor)Random.Range(0, 9)
-            };
+            
+            if (materialName.Contains("orange")) return GameManager.BrickColor.Orange;
+            if (materialName.Contains("blue")) return GameManager.BrickColor.Blue;
+            if (materialName.Contains("pink")) return GameManager.BrickColor.Pink;
+            if (materialName.Contains("purple")) return GameManager.BrickColor.Purple;
+            if (materialName.Contains("green")) return GameManager.BrickColor.Green;
+            if (materialName.Contains("white")) return GameManager.BrickColor.White;
+            if (materialName.Contains("gray")) return GameManager.BrickColor.Gray;
+            if (materialName.Contains("brown")) return GameManager.BrickColor.Brown;
+            if (materialName.Contains("black")) return GameManager.BrickColor.Black;
         }
+        
+        // Eğer bulamazsak rastgele bir renk döndür
         return (GameManager.BrickColor)Random.Range(0, 9);
     }
     
-    private IEnumerator MoveBricksDownCoroutine(int clearedLayer)
+    private GameManager.ColorSettings GetColorSettings(GameManager.BrickColor colorType)
     {
-        yield return new WaitForSeconds(effectSettings.layerClearDelay);
+        // GameManager'daki color settings'i bul
+        foreach (var colorSetting in gameManager.availableColors)
+        {
+            if (colorSetting.colorType == colorType)
+            {
+                return colorSetting;
+            }
+        }
+        return gameManager.availableColors[0]; // Fallback
+    }
+    
+    private System.Collections.IEnumerator MoveBricksDownCoroutine(int clearedLayer)
+    {
+        yield return new WaitForSeconds(layerClearDelay);
         
         List<GameObject> bricksToMove = new List<GameObject>();
         
+        // Üstteki brick'leri bul
         foreach(GameObject brick in gameManager.landedBricks)
         {
-            if (brick == null) continue;
-            
             Vector2Int brickGridPos = gameManager.GetBrickGridPosition(brick);
             int brickLayer = gridManager.GetLayerAtPosition(brickGridPos, brick);
             
@@ -268,21 +218,24 @@ public class EffectManager : MonoBehaviour
             }
         }
         
+        // Brick'leri aşağı kaydır
         foreach(GameObject brick in bricksToMove)
         {
             Vector2Int brickGridPos = gameManager.GetBrickGridPosition(brick);
             int brickLayer = gridManager.GetLayerAtPosition(brickGridPos, brick);
             float newY = (brickLayer - 1) * gridManager.layerHeight;
-            StartCoroutine(MoveBrickSmooth(brick, newY, effectSettings.brickFallDuration));
+            
+            StartCoroutine(MoveBrickSmooth(brick, newY, brickFallDuration));
         }
         
         Debug.Log($"⬇️ {bricksToMove.Count} brick aşağı kaydırılıyor...");
     }
     
-    private IEnumerator RemoveLayerWithParticleEffectCoroutine(int layer, float delay)
+    private System.Collections.IEnumerator RemoveLayerWithParticleEffectCoroutine(int layer, float delay)
     {
         yield return new WaitForSeconds(delay);
         
+        // Bu layer'daki brick'leri bul
         List<GameObject> bricksToRemove = new List<GameObject>();
         
         foreach(GameObject brick in gameManager.landedBricks.ToArray())
@@ -298,13 +251,14 @@ public class EffectManager : MonoBehaviour
             }
         }
         
-        // Toplam parçacık sayısını hesapla ve logla
+        // Toplam parçacık sayısını hesapla
         int totalParticles = 0;
         Dictionary<GameManager.BrickColor, int> particlesPerColor = new Dictionary<GameManager.BrickColor, int>();
         
+        // Her renk için parçacık sayısını hesapla (dağılıma göre)
         foreach (var kvp in layerColorDistribution)
         {
-            int particlesForThisColor = Mathf.RoundToInt((float)kvp.Value / totalBricksInLayer * (particleSettings.maxParticles * bricksToRemove.Count));
+            int particlesForThisColor = Mathf.RoundToInt((float)kvp.Value / totalBricksInLayer * (maxParticles * bricksToRemove.Count));
             particlesPerColor[kvp.Key] = particlesForThisColor;
             totalParticles += particlesForThisColor;
         }
@@ -319,46 +273,60 @@ public class EffectManager : MonoBehaviour
             Destroy(brick);
         }
         
+        // Grid'den layer'ı temizle
         gridManager.RemoveLayer(layer);
         
         Debug.Log($"✅ Layer {layer} parçacıklara dönüştürüldü! ({bricksToRemove.Count} brick → {totalParticles} parçacık)");
+        
+        // Skor/istatistik bilgisini GameManager'a ilet (ileride kullanılacak)
+        SendColorStatsToGameManager(layer);
     }
     
     private void CreateBrickParticlesWithDistribution(GameObject originalBrick, Dictionary<GameManager.BrickColor, int> particlesPerColor)
     {
-        if (particleSettings.brickParticlePrefab == null)
+        if (brickParticlePrefab == null)
         {
             Debug.LogError("Brick particle prefab'ı atanmamış!");
             return;
         }
         
-        int particlesForThisBrick = Random.Range(particleSettings.minParticles, particleSettings.maxParticles + 1);
+        // Bu brick için kaç parçacık oluşturulacağını belirle
+        int particlesForThisBrick = Random.Range(minParticles, maxParticles + 1);
         
         for (int i = 0; i < particlesForThisBrick; i++)
         {
+            // Renk dağılımına göre renk seç
             GameManager.BrickColor particleColor = GetRandomColorByDistribution(particlesPerColor);
             CreateSingleParticle(originalBrick.transform.position, particleColor);
         }
         
+        // Efekt ve ses
         PlayClearEffects(originalBrick.transform.position);
     }
     
     private GameManager.BrickColor GetRandomColorByDistribution(Dictionary<GameManager.BrickColor, int> particlesPerColor)
     {
+        // Toplam parçacık sayısını hesapla
         int totalParticles = 0;
         foreach (var kvp in particlesPerColor)
+        {
             totalParticles += kvp.Value;
+        }
         
         if (totalParticles == 0) 
             return (GameManager.BrickColor)Random.Range(0, 9);
         
+        // Rastgele seçim yap (dağılıma göre)
         int randomValue = Random.Range(0, totalParticles);
         int currentSum = 0;
         
         foreach (var kvp in particlesPerColor)
         {
             currentSum += kvp.Value;
-            if (randomValue < currentSum) return kvp.Key;
+            if (randomValue < currentSum)
+            {
+                return kvp.Key;
+            }
         }
         
         return (GameManager.BrickColor)Random.Range(0, 9);
@@ -366,49 +334,40 @@ public class EffectManager : MonoBehaviour
     
     private void CreateSingleParticle(Vector3 position, GameManager.BrickColor color)
     {
-        GameObject particle = Instantiate(particleSettings.brickParticlePrefab);
+        // POOL'dan parçacık al (Instantiate yerine)
+        GameObject particle = GetParticleFromPool();
         
-        // BRICK'LERİ 3'TE 1 ORANINDA KÜÇÜLT
-        particle.transform.localScale = Vector3.one * 0.33f;
-        
-        // Rastgele pozisyon offset'i
         particle.transform.position = position + new Vector3(
-            Random.Range(-1f, 1f),
-            Random.Range(0.5f, 2f),
-            Random.Range(-1f, 1f)
+            Random.Range(-0.2f, 0.2f), // ÇOK AZ rastgele offset
+            Random.Range(-0.1f, 0.1f),
+            Random.Range(-0.2f, 0.2f)
         );
         
+        // GameManager'ın renk sistemini kullanarak texture uygula
         ApplyParticleTexture(particle, color);
         
+        // Fizik ayarla
         Rigidbody rb = particle.GetComponent<Rigidbody>();
         if (rb == null)
         {
             rb = particle.AddComponent<Rigidbody>();
         }
         
-        // DAHA AZ DRAG - daha serbest hareket
-        rb.drag = 0.05f;
-        rb.angularDrag = 0.02f;
-        rb.mass = 0.1f;
-        
-        // Yerçekimini etkinleştir
-        rb.useGravity = true;
-        
-        // Daha güçlü başlangıç kuvveti
+        // ÇOK AZ rastgele başlangıç kuvveti
         Vector3 randomDirection = new Vector3(
-            Random.Range(-2f, 2f),
-            Random.Range(1f, 3f),
-            Random.Range(-2f, 2f)
+            Random.Range(-0.5f, 0.5f),
+            Random.Range(0.1f, 0.5f),   // ÇOK AZ yukarı
+            Random.Range(-0.5f, 0.5f)
         );
-        rb.AddForce(randomDirection * effectSettings.randomForce * 3f, ForceMode.Impulse);
+        rb.AddForce(randomDirection * randomForce, ForceMode.Impulse);
         
-        // Rastgele rotation
-        rb.AddTorque(Random.insideUnitSphere * effectSettings.randomForce, ForceMode.Impulse);
+        // ÇOK AZ rastgele rotation
+        rb.AddTorque(Random.insideUnitSphere * randomForce * 0.5f, ForceMode.Impulse);
         
-        StartCoroutine(ParticleFlowCoroutine(particle, rb, color));
+        // Akış coroutine'ini başlat
+        StartCoroutine(ParticleFlowCoroutine(particle, rb));
+        
         activeParticles.Add(particle);
-        
-        Debug.Log($"🎯 {color} renginde KÜÇÜK parçacık oluşturuldu, hedef: {collectionBoxes.ContainsKey(color)}");
     }
     
     private void ApplyParticleTexture(GameObject particle, GameManager.BrickColor color)
@@ -437,148 +396,80 @@ public class EffectManager : MonoBehaviour
         }
     }
     
-    private GameManager.ColorSettings GetColorSettings(GameManager.BrickColor colorType)
-    {
-        foreach (var colorSetting in gameManager.availableColors)
-            if (colorSetting.colorType == colorType)
-                return colorSetting;
-        
-        return gameManager.availableColors[0];
-    }
-    
-    private IEnumerator ParticleFlowCoroutine(GameObject particle, Rigidbody rb, GameManager.BrickColor color)
+    private System.Collections.IEnumerator ParticleFlowCoroutine(GameObject particle, Rigidbody rb)
     {
         float timer = 0f;
+        Vector3 startPosition = particle.transform.position;
         Vector3 startScale = particle.transform.localScale;
-        float lastDebugTime = 0f;
-        bool isAbovePlate = true;
         
-        // Hedef kutusunu bulmak için bekle (kutular oluşana kadar)
-        Transform targetBox = null;
-        float waitTime = 0f;
-        while (targetBox == null && waitTime < 2f)
-        {
-            targetBox = collectionBoxes.ContainsKey(color) ? collectionBoxes[color] : null;
-            if (targetBox == null)
-            {
-                waitTime += Time.deltaTime;
-                yield return null;
-            }
-        }
-
-        if (targetBox == null)
-        {
-            Debug.LogWarning($"Hedef kutu bulunamadı: {color}, parçacık yok ediliyor");
-            activeParticles.Remove(particle);
-            Destroy(particle);
-            yield break;
-        }
-
-        Debug.Log($"🎯 Parçacık {color} hedef kutusuna yönlendiriliyor: {targetBox.position}");
-
-        // Başlangıçta biraz bekle (dağılma efekti için)
-        yield return new WaitForSeconds(0.5f);
-
-        // Fizik ayarlarını daha agresif yap
-        rb.drag = 0.1f;
-        rb.angularDrag = 0.05f;
-
-        while (timer < effectSettings.particleLifetime && particle != null && targetBox != null)
+        while (timer < particleLifetime && particle != null)
         {
             timer += Time.deltaTime;
             
-            if (rb != null)
+            if (collectionPoint != null && rb != null)
             {
-                // Hedef kutuya olan mesafeyi hesapla
-                float distanceToTarget = Vector3.Distance(particle.transform.position, targetBox.position);
+                // Akışın ilk yarısında daha yavaş, ikinci yarısında daha hızlı
+                float flowPhase = timer / particleLifetime;
+                float currentFlowSpeed = flowSpeed * (0.5f + flowPhase * 1.5f);
                 
-                // Plate üzerinde mi kontrol et (Y pozisyonu > 0 ise plate üzerinde)
-                bool currentlyAbovePlate = particle.transform.position.y > 0.1f;
+                // Hedefe doğru akış kuvveti (daha güçlü)
+                Vector3 direction = (collectionPoint.position - particle.transform.position).normalized;
+                rb.AddForce(direction * currentFlowSpeed * Time.deltaTime, ForceMode.VelocityChange);
                 
-                Vector3 direction;
+                // Hafif yerçekimi (aşağı doğru)
+                rb.AddForce(Vector3.down * gravityForce * Time.deltaTime, ForceMode.VelocityChange);
                 
-                if (currentlyAbovePlate && isAbovePlate)
+                // Hız sınırlaması (çok hızlı gitmesin)
+                if (rb.velocity.magnitude > 5f)
                 {
-                    // PLATE ÜZERİNDEYKEN: Önce yana doğru it, sonra aşağı
-                    Vector3 horizontalDirection = new Vector3(
-                        (targetBox.position - particle.transform.position).normalized.x,
-                        0f,
-                        (targetBox.position - particle.transform.position).normalized.z
-                    ).normalized;
-                    
-                    // Yana doğru güçlü kuvvet + hafif aşağı itiş
-                    direction = horizontalDirection + Vector3.down * 0.3f;
-                    isAbovePlate = true;
-                }
-                else
-                {
-                    // PLATE'İN ALTINDAYKEN: Doğrudan hedefe git
-                    direction = (targetBox.position - particle.transform.position).normalized;
-                    isAbovePlate = false;
+                    rb.velocity = rb.velocity.normalized * 5f;
                 }
                 
-                // Mesafe azaldıkça hızı azalt (yavaşlama efekti)
-                float targetSpeed = Mathf.Clamp(distanceToTarget * 3f, 2f, 15f);
-                
-                // Plate üzerindeyken daha hızlı, aşağıdayken normal hız
-                if (isAbovePlate) targetSpeed *= 1.5f;
-                
-                // Mevcut hızı hedef hıza doğru yönlendir
-                Vector3 targetVelocity = direction * targetSpeed;
-                rb.velocity = Vector3.Lerp(rb.velocity, targetVelocity, 3f * Time.deltaTime);
-
-                // Debug: Her saniye bir kere log göster
-                if (timer - lastDebugTime > 1f)
+                // Yavaş yavaş scale küçült (yok olma efekti) - sadece son %20'sinde
+                if (flowPhase > 0.8f)
                 {
-                    lastDebugTime = timer;
-                    string positionStatus = isAbovePlate ? "PLATE ÜZERİNDE" : "PLATE ALTINDA";
-                    Debug.Log($"🎯 Parçacık {color} -> {positionStatus}, Mesafe: {distanceToTarget:F1}, Hız: {rb.velocity.magnitude:F1}");
-                }
-                
-                // Hedefe çok yakınsa yok ol
-                if (distanceToTarget < 1f)
-                {
-                    // Küçülme efekti
-                    float disappearProgress = 1f - (distanceToTarget / 1f);
-                    particle.transform.localScale = Vector3.Lerp(startScale, Vector3.one * 0.01f, disappearProgress);
-                    
-                    if (distanceToTarget < 0.3f)
-                    {
-                        Debug.Log($"✅ Parçacık {color} kutusuna ulaştı!");
-                        break;
-                    }
+                    float scaleProgress = (flowPhase - 0.8f) / 0.2f;
+                    particle.transform.localScale = Vector3.Lerp(startScale, Vector3.one * 0.1f, scaleProgress);
                 }
             }
             
             yield return null;
         }
         
-        // Parçacığı yok et
+        // Parçacığı POOL'a geri ver (Destroy yerine)
         if (particle != null)
         {
             activeParticles.Remove(particle);
-            Destroy(particle);
+            ReturnParticleToPool(particle);
         }
     }
     
     private void PlayClearEffects(Vector3 position)
     {
         // Parlama efekti
-        if (particleSettings.clearEffectPrefab != null)
+        if (clearEffectPrefab != null)
         {
-            ParticleSystem effect = Instantiate(particleSettings.clearEffectPrefab, position, Quaternion.identity);
+            ParticleSystem effect = Instantiate(clearEffectPrefab, position, Quaternion.identity);
             effect.Play();
             Destroy(effect.gameObject, 2f);
         }
         
         // Ses efekti
-        if (particleSettings.clearSound != null)
+        if (clearSound != null)
         {
-            AudioSource.PlayClipAtPoint(particleSettings.clearSound, position);
+            AudioSource.PlayClipAtPoint(clearSound, position);
         }
     }
     
-    private IEnumerator MoveBrickSmooth(GameObject brick, float targetY, float duration)
+    private void SendColorStatsToGameManager(int layer)
+    {
+        // Bu bilgiyi GameManager'a ilet (skor sistemi için)
+        Debug.Log($"📊 Layer {layer} renk istatistikleri GameManager'a iletildi");
+        
+        // Örnek: GameManager.instance.OnLayerCleared(layerColorDistribution);
+    }
+    
+    private System.Collections.IEnumerator MoveBrickSmooth(GameObject brick, float targetY, float duration)
     {
         Vector3 startPos = brick.transform.position;
         Vector3 endPos = new Vector3(startPos.x, targetY, startPos.z);
@@ -596,47 +487,37 @@ public class EffectManager : MonoBehaviour
         
         brick.transform.position = endPos;
     }
-
-    // Debug için: Tüm kutuların pozisyonlarını ve parçacık sayılarını göster
-    public void DebugParticleStatus()
+    
+    // Debug için pool durumunu göster
+    public void DebugPoolStatus()
     {
-        Debug.Log("=== PARÇACIK DURUMU ===");
-        Debug.Log($"Aktif Parçacık Sayısı: {activeParticles.Count}");
-        
-        foreach (var kvp in collectionBoxes)
-        {
-            int particlesForThisColor = 0;
-            foreach (var particle in activeParticles)
-            {
-                if (particle != null)
-                {
-                    var particleColor = GetBrickColor(particle);
-                    if (particleColor == kvp.Key)
-                        particlesForThisColor++;
-                }
-            }
-            Debug.Log($"Kutu {kvp.Key}: {particlesForThisColor} parçacık, Pozisyon: {kvp.Value.position}");
-        }
-    }
-
-    // Oyun başladığında veya renkler değiştiğinde kutuları yeniden oluşturmak için
-    public void RefreshCollectionBoxes()
-    {
-        CreateCollectionBoxes();
+        Debug.Log($"=== OBJECT POOL DURUMU ===");
+        Debug.Log($"🔷 Aktif Parçacık: {activeParticles.Count}");
+        Debug.Log($"💠 Pool'da Bekleyen: {particlePool.Count}");
+        Debug.Log($"📊 Toplam: {activeParticles.Count + particlePool.Count}");
     }
     
+    // Temizlik için
     void OnDestroy()
     {
         foreach (GameObject particle in activeParticles)
+        {
             if (particle != null)
-                Destroy(particle);
-        
-        foreach (var box in collectionBoxes.Values)
-            if (box != null)
-                Destroy(box.gameObject);
-        
+            {
+                ReturnParticleToPool(particle);
+            }
+        }
         activeParticles.Clear();
-        collectionBoxes.Clear();
+        
+        // Pool'daki tüm parçacıkları da temizle
+        foreach (GameObject particle in particlePool)
+        {
+            if (particle != null)
+            {
+                Destroy(particle);
+            }
+        }
+        particlePool.Clear();
     }
     
     // Hızlı efekt testi için
