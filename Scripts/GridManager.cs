@@ -7,44 +7,41 @@ public class GridManager : MonoBehaviour
     public float cellSize = 1f;
     public float layerHeight = 1.3f;
     
-    // YENİ: Her hücrenin hangi brick tarafından doldurulduğunu tut
-    private GameObject[,,] gridCells; // [x, y, layer]
+    private GameObject[,,] gridCells;
     private int currentHighestLayer = 0;
-    
+    private const int maxLayers = 100;
+
     void Start()
     {
-        gridCells = new GameObject[(int)gridSize.x, (int)gridSize.y, 100]; // Max 100 layer
+        gridCells = new GameObject[(int)gridSize.x, (int)gridSize.y, maxLayers];
     }
     
     public bool IsValidPosition(Vector2Int position, Vector2Int size)
     {
-        if (position.x < 0 || position.y < 0) return false;
-        if (position.x + size.x > gridSize.x || position.y + size.y > gridSize.y) return false;
-        return true;
+        return position.x >= 0 && position.y >= 0 && 
+               position.x + size.x <= gridSize.x && 
+               position.y + size.y <= gridSize.y;
     }
     
     public Vector3 GetGridPosition(Vector2Int gridPos, Vector2Int size)
     {
-        Vector3 worldPos = new Vector3(
+        return new Vector3(
             gridPos.x * cellSize + (size.x * cellSize * 0.5f),
             0,
             gridPos.y * cellSize + (size.y * cellSize * 0.5f)
         );
-        return worldPos;
     }
     
     public float GetRequiredHeight(Vector2Int gridPos, Vector2Int size)
     {
         int maxHeight = 0;
         
-        // Brick'in yerleşeceği alandaki en yüksek layer'ı bul
         for(int x = gridPos.x; x < gridPos.x + size.x; x++)
         {
             for(int y = gridPos.y; y < gridPos.y + size.y; y++)
             {
                 if(x < gridSize.x && y < gridSize.y)
                 {
-                    // Bu hücredeki en üst brick'i bul
                     for(int layer = currentHighestLayer; layer >= 0; layer--)
                     {
                         if(gridCells[x, y, layer] != null)
@@ -64,7 +61,6 @@ public class GridManager : MonoBehaviour
     {
         int targetLayer = Mathf.RoundToInt(GetRequiredHeight(gridPos, size) / layerHeight);
         
-        // Brick'i grid'e yerleştir
         for(int x = gridPos.x; x < gridPos.x + size.x; x++)
         {
             for(int y = gridPos.y; y < gridPos.y + size.y; y++)
@@ -76,28 +72,22 @@ public class GridManager : MonoBehaviour
             }
         }
         
-        // En yüksek layer'ı güncelle
         currentHighestLayer = Mathf.Max(currentHighestLayer, targetLayer);
-        
-        Debug.Log($"Brick {gridPos} pozisyonuna layer {targetLayer}'a yerleştirildi");
     }
     
     public List<Vector2Int> CheckCompletedLayer(int layer)
     {
-        // Bu layer'daki TÜM hücreler dolu mu?
         for(int x = 0; x < gridSize.x; x++)
         {
             for(int y = 0; y < gridSize.y; y++)
             {
                 if(gridCells[x, y, layer] == null)
                 {
-                    // Boş hücre bulundu, katman tamamlanmamış
                     return null;
                 }
             }
         }
         
-        // Tüm hücreler dolu, pozisyon listesini oluştur
         List<Vector2Int> completedPositions = new List<Vector2Int>();
         for(int x = 0; x < gridSize.x; x++)
         {
@@ -107,15 +97,11 @@ public class GridManager : MonoBehaviour
             }
         }
         
-        Debug.Log($"✅ Katman {layer} TAMAMEN DOLU! {completedPositions.Count} hücre");
         return completedPositions;
     }
     
     public void RemoveLayer(int layer)
     {
-        Debug.Log($"🗑️ Katman {layer} siliniyor...");
-        
-        // Bu layer'daki tüm brick'leri temizle
         for(int x = 0; x < gridSize.x; x++)
         {
             for(int y = 0; y < gridSize.y; y++)
@@ -124,7 +110,6 @@ public class GridManager : MonoBehaviour
             }
         }
         
-        // Üstteki layer'ları aşağı kaydır
         for(int l = layer + 1; l <= currentHighestLayer; l++)
         {
             for(int x = 0; x < gridSize.x; x++)
@@ -140,10 +125,7 @@ public class GridManager : MonoBehaviour
         currentHighestLayer = Mathf.Max(0, currentHighestLayer - 1);
     }
     
-    public int GetHighestLayer()
-    {
-        return currentHighestLayer;
-    }
+    public int GetHighestLayer() => currentHighestLayer;
     
     public int GetLayerAtPosition(Vector2Int gridPos, GameObject brick)
     {

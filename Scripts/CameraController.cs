@@ -2,69 +2,55 @@ using UnityEngine;
 
 public class CameraController : MonoBehaviour
 {
-    [Header("Camera Settings")]
+    [Header("References")]
     public Transform target;
+    
+    [Header("Zoom Settings")]
     public float distance = 15f;
-    public float minDistance = 5f;
-    public float maxDistance = 25f;
+    public float minDistance = 3f;
+    public float maxDistance = 30f;
+    public float zoomSpeed = 8f;
+    public float mobileZoomSensitivity = 0.1f;
+    public float zoomSmoothness = 5f;
     
     [Header("Rotation Settings")]
     public float rotationSpeed = 2f;
-<<<<<<< HEAD
     public float verticalAngleLimit = 80f;
-=======
-    public float verticalAngleLimit = 80f; // Yukarı sınır
-    public float downwardAngleLimit = 10f;  // Aşağı sınır - YENİ!
->>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
-    
-    [Header("Smooth Settings")]
+    public float downwardAngleLimit = 10f;
     public float rotationSmoothness = 5f;
-    public float zoomSmoothness = 5f;
-    public float resetSmoothness = 2f;
     
-    [Header("Position Settings")]
+    [Header("Reset Settings")]
+    public float resetSmoothness = 2f;
     public Vector3 defaultPosition = new Vector3(17.45f, 11.9f, -9.57f);
     public Quaternion defaultRotation = new Quaternion(0.199964f, -0.373612f, 0.082827f, 0.90198f);
     
-    private float currentX = 0f;
-    private float currentY = 0f;
-    private float targetX = 0f;
-    private float targetY = 0f;
-    private float targetDistance = 15f;
-    private bool isResetting = false;
-    private float resetProgress = 0f;
-    
-<<<<<<< HEAD
-    // Reset için başlangıç değerleri
-=======
->>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
-    private float resetStartX, resetStartY, resetStartDistance;
+    private float currentX, currentY;
+    private float targetX, targetY;
+    private float targetDistance;
+    private bool isResetting;
+    private float resetProgress;
     private Vector3 defaultEulerAngles;
-    
+
     void Start()
     {
-        transform.position = defaultPosition;
-        transform.rotation = defaultRotation;
-        
-        Vector3 angles = transform.eulerAngles;
-        currentX = angles.y;
-        currentY = angles.x;
-        targetX = currentX;
-        targetY = currentY;
-        targetDistance = distance;
-        
         defaultEulerAngles = defaultRotation.eulerAngles;
+        currentX = targetX = defaultEulerAngles.y;
+        currentY = targetY = defaultEulerAngles.x;
+        targetDistance = distance;
+        UpdateCameraPosition();
     }
     
     void Update()
     {
-        if (target == null) return;
+        if (target == null) 
+        {
+            Debug.LogWarning("Kamera target'ı bulunamadı!");
+            return;
+        }
         
         if (!isResetting)
         {
-            HandleCameraRotation();
-            HandleCameraZoom();
-            HandleResetCamera();
+            HandleInput();
         }
         else
         {
@@ -74,49 +60,69 @@ public class CameraController : MonoBehaviour
         UpdateCameraSmoothly();
     }
     
+    void HandleInput()
+    {
+        HandleCameraRotation();
+        HandleCameraZoom();
+        
+        if (Input.GetKeyDown(KeyCode.C))
+        {
+            StartCameraReset();
+        }
+    }
+    
     void HandleCameraRotation()
     {
+        Vector2 input = GetRotationInput();
+        
+        if (input != Vector2.zero)
+        {
+            targetX += input.x * rotationSpeed;
+            targetY -= input.y * rotationSpeed;
+            targetY = Mathf.Clamp(targetY, -downwardAngleLimit, verticalAngleLimit);
+        }
+    }
+    
+    Vector2 GetRotationInput()
+    {
+        Vector2 input = Vector2.zero;
+        
+        // Mouse input
         if (Input.GetMouseButton(0) || Input.GetMouseButton(1))
         {
-            float mouseX = Input.GetAxis("Mouse X");
-            float mouseY = Input.GetAxis("Mouse Y");
-            
-            targetX += mouseX * rotationSpeed;
-            targetY -= mouseY * rotationSpeed;
-<<<<<<< HEAD
-            targetY = Mathf.Clamp(targetY, -verticalAngleLimit, verticalAngleLimit);
-=======
-            
-            // Hem yukarı hem aşağı açıyı sınırla
-            targetY = Mathf.Clamp(targetY, -downwardAngleLimit, verticalAngleLimit);
->>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
+            input = new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
         }
-        
-        if (Input.touchCount == 1)
+        // Touch input
+        else if (Input.touchCount == 1)
         {
             Touch touch = Input.GetTouch(0);
             if (touch.phase == TouchPhase.Moved)
             {
-                targetX += touch.deltaPosition.x * rotationSpeed * 0.02f;
-                targetY -= touch.deltaPosition.y * rotationSpeed * 0.02f;
-<<<<<<< HEAD
-                targetY = Mathf.Clamp(targetY, -verticalAngleLimit, verticalAngleLimit);
-=======
-                targetY = Mathf.Clamp(targetY, -downwardAngleLimit, verticalAngleLimit);
->>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
+                input = touch.deltaPosition * 0.02f;
             }
         }
+        
+        return input;
     }
     
     void HandleCameraZoom()
     {
-        float scroll = Input.GetAxis("Mouse ScrollWheel");
-        if (scroll != 0)
+        float zoomInput = GetZoomInput();
+        
+        if (zoomInput != 0)
         {
-            targetDistance -= scroll * 5f;
+            targetDistance -= zoomInput;
             targetDistance = Mathf.Clamp(targetDistance, minDistance, maxDistance);
         }
+    }
+    
+    float GetZoomInput()
+    {
+        // Mouse wheel
+        float scroll = Input.GetAxis("Mouse ScrollWheel");
+        if (scroll != 0) return scroll * zoomSpeed;
         
+        // Mobile pinch zoom
         if (Input.touchCount == 2)
         {
             Touch touch1 = Input.GetTouch(0);
@@ -125,55 +131,34 @@ public class CameraController : MonoBehaviour
             Vector2 touch1PrevPos = touch1.position - touch1.deltaPosition;
             Vector2 touch2PrevPos = touch2.position - touch2.deltaPosition;
             
-            float prevTouchDeltaMag = (touch1PrevPos - touch2PrevPos).magnitude;
-            float touchDeltaMag = (touch1.position - touch2.position).magnitude;
+            float prevMagnitude = (touch1PrevPos - touch2PrevPos).magnitude;
+            float currentMagnitude = (touch1.position - touch2.position).magnitude;
             
-            float deltaMagnitudeDiff = prevTouchDeltaMag - touchDeltaMag;
-            
-            targetDistance += deltaMagnitudeDiff * 0.1f;
-            targetDistance = Mathf.Clamp(targetDistance, minDistance, maxDistance);
+            return (prevMagnitude - currentMagnitude) * mobileZoomSensitivity;
         }
+        
+        // Keyboard
+        if (Input.GetKey(KeyCode.Plus) || Input.GetKey(KeyCode.Equals)) return zoomSpeed * Time.deltaTime;
+        if (Input.GetKey(KeyCode.Minus)) return -zoomSpeed * Time.deltaTime;
+        
+        return 0;
     }
     
-    void HandleResetCamera()
+    // UI BUTON FONKSİYONU
+    public void OnResetCameraButton()
     {
-        if (Input.GetKeyDown(KeyCode.C))
-        {
-            StartCameraReset();
-        }
+        StartCameraReset();
     }
     
     void StartCameraReset()
     {
         isResetting = true;
         resetProgress = 0f;
-        
-<<<<<<< HEAD
-        // Mevcut değerleri kaydet
-=======
->>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
-        resetStartX = currentX;
-        resetStartY = currentY;
-        resetStartDistance = distance;
-        
-<<<<<<< HEAD
-        // Hedef değerleri ayarla
-=======
->>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
         targetX = defaultEulerAngles.y;
         targetY = defaultEulerAngles.x;
-        targetDistance = CalculateDefaultDistance();
-    }
-    
-    float CalculateDefaultDistance()
-    {
-<<<<<<< HEAD
-        // Default pozisyon ile target arasındaki mesafe
-=======
->>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
-        if (target != null)
-            return Vector3.Distance(defaultPosition, target.position);
-        return 15f;
+        targetDistance = 15f;
+        
+        Debug.Log($"🔄 Kamera sıfırlanıyor...");
     }
     
     void HandleCameraReset()
@@ -184,15 +169,12 @@ public class CameraController : MonoBehaviour
         {
             resetProgress = 1f;
             isResetting = false;
-            
-<<<<<<< HEAD
-            // Son değerleri kesin olarak ayarla
-=======
->>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
             currentX = targetX;
             currentY = targetY;
             distance = targetDistance;
             UpdateCameraPosition();
+            
+            Debug.Log($"✅ Kamera sıfırlandı: distance={distance}");
         }
     }
     
@@ -200,39 +182,19 @@ public class CameraController : MonoBehaviour
     {
         if (isResetting)
         {
-<<<<<<< HEAD
-            // Reset sırasında SADECE rotation ve distance'ı smooth geçiş yap
-=======
->>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
             float smoothProgress = SmoothStep(resetProgress);
-            
-            currentX = Mathf.LerpAngle(resetStartX, targetX, smoothProgress);
-            currentY = Mathf.LerpAngle(resetStartY, targetY, smoothProgress);
-            distance = Mathf.Lerp(resetStartDistance, targetDistance, smoothProgress);
-            
-            UpdateCameraPosition();
+            currentX = Mathf.LerpAngle(currentX, targetX, smoothProgress);
+            currentY = Mathf.LerpAngle(currentY, targetY, smoothProgress);
+            distance = Mathf.Lerp(distance, targetDistance, smoothProgress);
         }
         else
         {
-<<<<<<< HEAD
-            // Normal smooth movement
-=======
->>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
             currentX = Mathf.LerpAngle(currentX, targetX, rotationSmoothness * Time.deltaTime);
             currentY = Mathf.LerpAngle(currentY, targetY, rotationSmoothness * Time.deltaTime);
             distance = Mathf.Lerp(distance, targetDistance, zoomSmoothness * Time.deltaTime);
-            
-            UpdateCameraPosition();
         }
-    }
-    
-    float SmoothStep(float t)
-    {
-<<<<<<< HEAD
-        // Daha smooth bir easing function
-=======
->>>>>>> 75acb8f (Layer completion and destruction system implemented; falling adjustments and visual effect updates added)
-        return t * t * t * (t * (6f * t - 15f) + 10f);
+        
+        UpdateCameraPosition();
     }
     
     void UpdateCameraPosition()
@@ -240,16 +202,18 @@ public class CameraController : MonoBehaviour
         if (target == null) return;
         
         Quaternion rotation = Quaternion.Euler(currentY, currentX, 0);
-        Vector3 negDistance = new Vector3(0.0f, 0.0f, -distance);
-        Vector3 position = rotation * negDistance + target.position;
+        Vector3 direction = rotation * Vector3.back;
+        Vector3 desiredPosition = target.position + direction * distance;
         
         transform.rotation = rotation;
-        transform.position = position;
+        transform.position = desiredPosition;
     }
+    
+    float SmoothStep(float t) => t * t * t * (t * (6f * t - 15f) + 10f);
     
     void OnValidate()
     {
-        if (target != null)
+        if (target != null && Application.isPlaying)
         {
             UpdateCameraPosition();
         }
@@ -262,6 +226,9 @@ public class CameraController : MonoBehaviour
             Gizmos.color = Color.yellow;
             Gizmos.DrawWireSphere(target.position, 0.5f);
             Gizmos.DrawLine(target.position, transform.position);
+            
+            Gizmos.color = Color.blue;
+            Gizmos.DrawWireSphere(target.position, distance);
         }
     }
 }
