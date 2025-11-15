@@ -18,30 +18,31 @@ public class EffectManager : MonoBehaviour
     public int maxParticles = 8;
     public float particleLifetime = 2f;
 
+    // GameManager animasyon ayarları
+    private float fallSpeed = 1f;
+    private float snapSpeed = 0.1f;
+    private float settleOvershoot = 0.1f;
+    private float settleDuration = 0.4f;
+
     void Start()
     {
-        // Sadece inspector'dan atanmamışsa bul
-        if (gameManager == null) gameManager = FindObjectOfType<GameManager>();
-        if (gridManager == null) gridManager = FindObjectOfType<GridManager>();
+        gameManager ??= FindObjectOfType<GameManager>();
+        gridManager ??= FindObjectOfType<GridManager>();
     }
 
-    public void ClearLayerWithEffects(int layer)
-    {
-        StartCoroutine(ClearLayerRoutine(layer));
-    }
+    public void ClearLayerWithEffects(int layer) => StartCoroutine(ClearLayerRoutine(layer));
 
     private IEnumerator ClearLayerRoutine(int layer)
     {
         yield return new WaitForSeconds(layerClearDelay);
 
-        // Brick'leri topla (orijinal metod)
         var bricksToRemove = gridManager.GetBricksInLayer(layer);
         var bricksToMove = GetBricksAboveLayer(layer);
 
-        // Grid'den temizle
+        // 1. ÖNCE GRID'DEN TEMİZLE
         gridManager.RemoveLayer(layer);
 
-        // Brick'leri yok et ve partikül oluştur
+        // 2. SONRA BRICK'LERİ YOK ET
         foreach (var brick in bricksToRemove)
         {
             if (brick != null)
@@ -52,7 +53,7 @@ public class EffectManager : MonoBehaviour
             }
         }
 
-        // Üst brick'leri kaydır
+        // 3. EN SON ÜST BRICK'LERİ KAYDIR (GAMEMANAGER ANİMASYONU İLE)
         foreach (var brick in bricksToMove)
         {
             if (brick != null)
@@ -60,7 +61,7 @@ public class EffectManager : MonoBehaviour
         }
     }
 
-    private List<GameObject> GetBricksAboveLayer(int layer)
+    private List<GameObject> GetBricksAboveLayer(int layer) 
     {
         var bricks = new List<GameObject>();
         
@@ -69,9 +70,7 @@ public class EffectManager : MonoBehaviour
             if (brick == null) continue;
             
             var gridPos = gameManager.GetBrickGridPosition(brick);
-            var brickLayer = gridManager.GetLayerAtPosition(gridPos, brick);
-            
-            if (brickLayer > layer)
+            if (gridManager.GetLayerAtPosition(gridPos, brick) > layer)
                 bricks.Add(brick);
         }
         
@@ -84,53 +83,121 @@ public class EffectManager : MonoBehaviour
 
         var startPos = brick.transform.position;
         var gridPos = gameManager.GetBrickGridPosition(brick);
-        var brickLayer = gridManager.GetLayerAtPosition(gridPos, brick);
-        var endPos = new Vector3(startPos.x, (brickLayer - 1) * gridManager.layerHeight, startPos.z);
-
-        var elapsed = 0f;
-        while (elapsed < brickFallDuration && brick != null)
+        
+        // Layer hesaplama
+        int currentLayer = gridManager.GetLayerAtPosition(gridPos, brick);
+        int targetLayer = Mathf.Max(0, currentLayer - 1);
+        float targetY = targetLayer * gridManager.layerHeight;
+        
+        var endPos = new Vector3(startPos.x, targetY, startPos.z);
+        float distanceToTarget = Mathf.Abs(startPos.y - targetY);
+        
+        // GAMEMANAGER ANİMASYON SİSTEMİ
+        if (distanceToTarget > 0.2f)
         {
-            brick.transform.position = Vector3.Lerp(startPos, endPos, elapsed / brickFallDuration);
-            elapsed += Time.deltaTime;
-            yield return null;
+            // FALL NORMALLY
+            yield return StartCoroutine(FallBrickNormally(brick, startPos, targetY));
+        }
+        else
+        {
+            // SNAP AND SETTLE
+            float overshootY = targetY + settleOvershoot;
+            yield return StartCoroutine(SnapBrickToPosition(brick, startPos, overshootY));
+            yield return StartCoroutine(SettleBrick(brick, overshootY, targetY));
         }
 
         if (brick != null)
             brick.transform.position = endPos;
     }
 
+    // GAMEMANAGER'DAKİ FALLNORMALLY METODU
+    private IEnumerator FallBrickNormally(GameObject brick, Vector3 startPos, float targetY)
+    {
+        Vector3 currentPos = startPos;
+        float newY = currentPos.y;
+        
+        while (brick != null && Mathf.Abs(newY - targetY) > 0.01f)
+        {
+            newY = Mathf.MoveTowards(currentPos.y, targetY, fallSpeed * Time.deltaTime);
+            brick.transform.position = new Vector3(currentPos.x, newY, currentPos.z);
+            currentPos = brick.transform.position;
+            yield return null;
+        }
+    }
+
+    // GAMEMANAGER'DAKİ SNAPTOPOSITION METODU  
+    private IEnumerator SnapBrickToPosition(GameObject brick, Vector3 startPos, float targetY)
+    {
+        Vector3 currentPos = startPos;
+        float newY = currentPos.y;
+        
+        while (brick != null && Mathf.Abs(newY - targetY) > 0.01f)
+        {
+            newY = Mathf.MoveTowards(currentPos.y, targetY, snapSpeed * Time.deltaTime);
+            brick.transform.position = new Vector3(currentPos.x, newY, currentPos.z);
+            currentPos = brick.transform.position;
+            yield return null;
+        }
+    }
+
+    // GAMEMANAGER'DAKİ SETTLEBRICK METODU
+    private IEnumerator SettleBrick(GameObject brick, float overshootY, float targetY)
+    {
+        if (brick == null) yield break;
+        
+        float settleTimer = 0f;
+        Vector3 currentPos = brick.transform.position;
+        
+        while (settleTimer < settleDuration && brick != null)
+        {
+            settleTimer += Time.deltaTime;
+            float settleProgress = Mathf.Clamp01(settleTimer / settleDuration);
+            float smoothProgress = 1f - Mathf.Pow(1f - settleProgress, 3f);
+            
+            float currentY = Mathf.Lerp(overshootY, targetY, smoothProgress);
+            brick.transform.position = new Vector3(currentPos.x, currentY, currentPos.z);
+            yield return null;
+        }
+    }
+
+    private Vector2Int GetBrickSize(GameObject brick)
+    {
+        if (brick == null) return Vector2Int.one;
+        
+        // Brick'in orijinal prefab ismini bul
+        string originalName = brick.name.Replace("(Clone)", "").Replace("LandedBrick_", "");
+        
+        var sizeParts = originalName.Split('x');
+        if (sizeParts.Length == 2)
+        {
+            if (int.TryParse(sizeParts[0], out int x) && int.TryParse(sizeParts[1], out int z))
+                return new Vector2Int(x, z);
+        }
+        
+        var scale = brick.transform.localScale;
+        return new Vector2Int(Mathf.RoundToInt(scale.x), Mathf.RoundToInt(scale.z));
+    }
+
     private void CreateParticlesForBrick(GameObject brick)
     {
         if (brickParticlePrefab == null || brick == null) return;
 
-        var particleCount = Random.Range(minParticles, maxParticles + 1);
-        var brickColor = GetBrickColor(brick);
+        var color = GetBrickColor(brick);
+        int count = Random.Range(minParticles, maxParticles + 1);
 
-        for (int i = 0; i < particleCount; i++)
-        {
-            CreateParticle(brick.transform.position, brickColor);
-        }
+        for (int i = 0; i < count; i++)
+            CreateParticle(brick.transform.position, color);
     }
 
     private void CreateParticle(Vector3 position, GameManager.BrickColor color)
     {
-        var particle = Instantiate(brickParticlePrefab);
-        particle.transform.position = position + Random.insideUnitSphere * 0.3f;
+        var particle = Instantiate(brickParticlePrefab, position + Random.insideUnitSphere * 0.3f, Quaternion.identity);
         particle.transform.localScale = Vector3.one * 0.5f;
 
-        var rb = particle.GetComponent<Rigidbody>();
-        if (rb == null)
-            rb = particle.AddComponent<Rigidbody>();
-
+        var rb = particle.GetComponent<Rigidbody>() ?? particle.AddComponent<Rigidbody>();
         rb.mass = 0.5f;
         rb.drag = 0.5f;
-
-        var force = new Vector3(
-            Random.Range(-2f, 2f),
-            Random.Range(1f, 3f),
-            Random.Range(-2f, 2f)
-        );
-        rb.AddForce(force, ForceMode.Impulse);
+        rb.AddForce(new Vector3(Random.Range(-2f, 2f), Random.Range(1f, 3f), Random.Range(-2f, 2f)), ForceMode.Impulse);
         rb.AddTorque(Random.insideUnitSphere * 2f, ForceMode.Impulse);
 
         ApplyParticleTexture(particle, color);
@@ -142,20 +209,19 @@ public class EffectManager : MonoBehaviour
         if (brick == null) return GameManager.BrickColor.Orange;
 
         var renderer = brick.GetComponentInChildren<Renderer>();
-        if (renderer == null || renderer.material == null)
-            return GameManager.BrickColor.Orange;
+        if (renderer?.material == null) return GameManager.BrickColor.Orange;
 
-        var materialName = renderer.material.name.ToLower();
+        var name = renderer.material.name.ToLower();
 
-        if (materialName.Contains("orange")) return GameManager.BrickColor.Orange;
-        if (materialName.Contains("blue")) return GameManager.BrickColor.Blue;
-        if (materialName.Contains("pink")) return GameManager.BrickColor.Pink;
-        if (materialName.Contains("purple")) return GameManager.BrickColor.Purple;
-        if (materialName.Contains("green")) return GameManager.BrickColor.Green;
-        if (materialName.Contains("white")) return GameManager.BrickColor.White;
-        if (materialName.Contains("gray")) return GameManager.BrickColor.Gray;
-        if (materialName.Contains("brown")) return GameManager.BrickColor.Brown;
-        if (materialName.Contains("black")) return GameManager.BrickColor.Black;
+        if (name.Contains("orange")) return GameManager.BrickColor.Orange;
+        if (name.Contains("blue")) return GameManager.BrickColor.Blue;
+        if (name.Contains("pink")) return GameManager.BrickColor.Pink;
+        if (name.Contains("purple")) return GameManager.BrickColor.Purple;
+        if (name.Contains("green")) return GameManager.BrickColor.Green;
+        if (name.Contains("white")) return GameManager.BrickColor.White;
+        if (name.Contains("gray")) return GameManager.BrickColor.Gray;
+        if (name.Contains("brown")) return GameManager.BrickColor.Brown;
+        if (name.Contains("black")) return GameManager.BrickColor.Black;
 
         return GameManager.BrickColor.Orange;
     }
@@ -167,15 +233,14 @@ public class EffectManager : MonoBehaviour
         var colorSettings = gameManager.availableColors.Find(c => c.colorType == color);
         if (colorSettings == null) return;
 
-        var renderers = particle.GetComponentsInChildren<Renderer>();
-        foreach (var renderer in renderers)
+        foreach (var renderer in particle.GetComponentsInChildren<Renderer>())
         {
             if (renderer == null) continue;
 
-            var material = new Material(renderer.material);
-            material.mainTextureScale = colorSettings.tiling;
-            material.mainTextureOffset = colorSettings.offset;
-            renderer.material = material;
+            var mat = new Material(renderer.material);
+            mat.mainTextureScale = colorSettings.tiling;
+            mat.mainTextureOffset = colorSettings.offset;
+            renderer.material = mat;
         }
     }
 }
