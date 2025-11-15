@@ -11,11 +11,11 @@ public class GameManager : MonoBehaviour
     public List<GameObject> brickPrefabs;
     
     [Header("Fall Settings")]
-    public float initialFallSpeed = 0.1f; // ÇOK DAHA YAVAŞ
-    public float maxFallSpeed = 1f; // ÇOK DAHA YAVAŞ
-    public float accelerationRate = 0.5f; // ÇOK DAHA YAVAŞ
+    public float initialFallSpeed = 0.1f;
+    public float maxFallSpeed = 1f;
+    public float accelerationRate = 0.5f;
     public float decelerationDistance = 3f;
-    public float snapSpeed = 0.1f; // ÇOK DAHA YAVAŞ
+    public float snapSpeed = 0.1f;
     public float settleOvershoot = 0.1f;
     public float settleDuration = 0.4f;
     public float autoFallDelay = 0.3f;
@@ -37,11 +37,17 @@ public class GameManager : MonoBehaviour
     public Button pauseButton;
     public Sprite pauseSprite;
     public Sprite continueSprite;
-    public Text pauseText; // Bu Text component'i pause butonunun üstündeki yazı için
+    public Text pauseText;
     
     [Header("Timer Settings")]
     public Text timerText;
     public float levelTime = 180f;
+
+    [Header("Fall Line Settings")]
+    public Color fallLineStartColor = new Color(1f, 1f, 1f, 0.7f); // Beyaz, %70 şeffaf
+    public Color fallLineEndColor = new Color(0.3f, 0.3f, 0.3f, 0.7f); // Koyu gri, %70 şeffaf
+    public float fallLineStartWidth = 0.3f; // 3x kalın
+    public float fallLineEndWidth = 0.15f; // 3x kalın
     
     public enum BrickColor { Orange, Blue, Pink, Purple, Green, White, Gray, Brown, Black }
     
@@ -80,12 +86,17 @@ public class GameManager : MonoBehaviour
     private const float startYPosition = 20f;
     private BrickColor currentBrickColor;
     private float currentTime;
+    private LineRenderer fallLine;
 
     void Start()
     {
         currentFallSpeed = initialFallSpeed;
         currentPauseChances = maxPauseChances;
         currentTime = levelTime;
+        
+        // Düşüş çizgisini oluştur
+        CreateFallLine();
+        
         UpdatePauseUI();
         UpdateTimerUI();
         StartCoroutine(GameTimer());
@@ -93,6 +104,80 @@ public class GameManager : MonoBehaviour
         DebugLogAvailableBrickNames();
         
         SpawnNewBrick();
+    }
+    
+    // YENİ: Düşüş çizgisi oluştur
+    void CreateFallLine()
+    {
+        GameObject lineObj = new GameObject("FallLine");
+        fallLine = lineObj.AddComponent<LineRenderer>();
+        
+        // Material ayarla - Transparent shader kullan
+        fallLine.material = new Material(Shader.Find("Sprites/Default"));
+        fallLine.startColor = fallLineStartColor;
+        fallLine.endColor = fallLineEndColor;
+        fallLine.startWidth = fallLineStartWidth;
+        fallLine.endWidth = fallLineEndWidth;
+        fallLine.positionCount = 2;
+        
+        // Daha iyi görünüm için
+        fallLine.useWorldSpace = true;
+        fallLine.numCapVertices = 5; // Daha yuvarlak uçlar
+        
+        // Başlangıçta gizle
+        fallLine.enabled = false;
+        
+        Debug.Log("📏 Düşüş çizgisi oluşturuldu - Beyaz, şeffaf, 3x kalın");
+    }
+    
+    // YENİ: Düşüş çizgisini güncelle
+    void UpdateFallLine()
+    {
+        if (currentBrick == null || !isFalling || hasLanded || isPaused)
+        {
+            if (fallLine != null)
+                fallLine.enabled = false;
+            return;
+        }
+        
+        // Çizgiyi göster
+        fallLine.enabled = true;
+        
+        // Başlangıç pozisyonu (brick'in merkezi)
+        Vector3 startPos = currentBrick.transform.position;
+        
+        // Bitiş pozisyonu (hedef yükseklik)
+        float targetY = gridManager.GetRequiredHeight(currentGridPosition, brickSize);
+        Vector3 endPos = new Vector3(startPos.x, targetY, startPos.z);
+        
+        // Çizgiyi güncelle
+        fallLine.SetPosition(0, startPos);
+        fallLine.SetPosition(1, endPos);
+        
+        // Çizgi rengini mesafeye göre ayarla
+        float distance = Mathf.Abs(startPos.y - targetY);
+        UpdateLineColorBasedOnDistance(distance);
+    }
+    
+    // YENİ: Mesafeye göre çizgi rengini güncelle - BEYAZ'dan KOYU GRİ'ye
+    void UpdateLineColorBasedOnDistance(float distance)
+    {
+        float colorLerp = Mathf.Clamp01(1f - (distance / decelerationDistance));
+        
+        // Beyaz (1,1,1) -> Koyu gri (0.3,0.3,0.3) arasında geçiş
+        Color targetColor = Color.Lerp(
+            new Color(1f, 1f, 1f, 0.7f), // Beyaz, şeffaf
+            new Color(0.3f, 0.3f, 0.3f, 0.7f), // Koyu gri, şeffaf
+            colorLerp
+        );
+        
+        fallLine.startColor = targetColor;
+        fallLine.endColor = targetColor;
+        
+        // İsteğe bağlı: Mesafe azaldıkça çizgiyi biraz daha inceltebiliriz
+        float widthLerp = Mathf.Clamp01(distance / decelerationDistance);
+        fallLine.startWidth = Mathf.Lerp(fallLineEndWidth, fallLineStartWidth, widthLerp);
+        fallLine.endWidth = fallLineEndWidth;
     }
     
     IEnumerator GameTimer()
@@ -128,13 +213,16 @@ public class GameManager : MonoBehaviour
     void GameOver()
     {
         isGameActive = false;
+        
+        // Düşüş çizgisini gizle
+        if (fallLine != null)
+            fallLine.enabled = false;
+            
         Debug.Log("⏰ Oyun bitti! Süre doldu.");
     }
     
-    // BU FONKSİYONU PAUSE BUTONUNA BAĞLA!
     public void OnPauseButtonClicked()
     {
-        // Pause hakkı kontrolü
         if (currentPauseChances <= 0 && !isPaused)
         {
             Debug.Log("❌ Pause hakkın kalmadı!");
@@ -143,17 +231,20 @@ public class GameManager : MonoBehaviour
         
         if (!isPaused)
         {
-            // Oyunu DURDUR
             isPaused = true;
             if (currentPauseChances > 0)
             {
                 currentPauseChances--;
             }
+            
+            // Düşüş çizgisini gizle
+            if (fallLine != null)
+                fallLine.enabled = false;
+                
             Debug.Log("⏸️ Oyun DURDURULDU - Kalan pause: " + currentPauseChances);
         }
         else
         {
-            // Oyunu DEVAM ETTİR
             isPaused = false;
             Debug.Log("▶️ Oyun DEVAM ETTİRİLDİ");
         }
@@ -165,7 +256,6 @@ public class GameManager : MonoBehaviour
     {
         if (pauseButton != null)
         {
-            // Buton görselini değiştir
             if (isPaused)
             {
                 pauseButton.image.sprite = continueSprite;
@@ -176,11 +266,9 @@ public class GameManager : MonoBehaviour
             }
         }
         
-        // Pause text'ini güncelle (3, 2, 1 gibi)
         if (pauseText != null)
         {
             pauseText.text = currentPauseChances.ToString();
-            Debug.Log("🔢 Pause text güncellendi: " + currentPauseChances);
         }
     }
     
@@ -306,6 +394,10 @@ public class GameManager : MonoBehaviour
         isFalling = hasLanded = isDecelerating = isSnapping = isSettling = false;
         currentFallSpeed = initialFallSpeed;
         settleTimer = currentWobble = wobbleTimer = 0f;
+        
+        // Düşüş çizgisini gizle
+        if (fallLine != null)
+            fallLine.enabled = false;
     }
     
     void ApplyBrickTexture(GameObject brick, BrickColor color)
@@ -401,6 +493,9 @@ public class GameManager : MonoBehaviour
         Vector2Int newSize = new Vector2Int(brickSize.y, brickSize.x);
         AdjustPositionAfterRotation(newSize);
         brickSize = newSize;
+        
+        // Brick döndürüldüğünde çizgiyi güncelle
+        UpdateFallLine();
     }
     
     void AdjustPositionAfterRotation(Vector2Int newSize)
@@ -468,6 +563,9 @@ public class GameManager : MonoBehaviour
             {
                 HandleFalling();
             }
+            
+            // YENİ: Düşüş çizgisini sürekli güncelle
+            UpdateFallLine();
         }
     }
     
@@ -483,7 +581,11 @@ public class GameManager : MonoBehaviour
         else if (Input.GetKeyDown(KeyCode.LeftArrow)) newPosition.x--;
         
         if (newPosition != currentGridPosition && gridManager.IsValidPosition(newPosition, brickSize))
+        {
             MoveBrickToGrid(newPosition.x, newPosition.y);
+            // Pozisyon değiştiğinde çizgiyi güncelle
+            UpdateFallLine();
+        }
     }
     
     void HandleRotationInput()
@@ -498,6 +600,10 @@ public class GameManager : MonoBehaviour
     {
         isFalling = true;
         currentWobble = wobbleAmount;
+        
+        // Düşüş başladığında çizgiyi göster
+        if (fallLine != null)
+            fallLine.enabled = true;
     }
     
     void HandleFalling()
@@ -618,6 +724,10 @@ public class GameManager : MonoBehaviour
         isSnapping = false;
         isSettling = false;
         
+        // Brick yerleştiğinde çizgiyi gizle
+        if (fallLine != null)
+            fallLine.enabled = false;
+        
         if (!isPaused)
         {
             Invoke("SpawnNewBrick", autoFallDelay);
@@ -625,31 +735,23 @@ public class GameManager : MonoBehaviour
     }
     
     void CheckForCompletedLayers()
+{
+    int highestLayer = gridManager.GetHighestLayer();
+    
+    for(int layer = highestLayer; layer >= 0; layer--)
     {
-        gridManager.PrintGridStatus();
+        BrickColor? layerColor = gridManager.CheckCompletedLayerWithColor(layer);
         
-        int highestLayer = gridManager.GetHighestLayer();
-        bool foundCompletedLayer = false;
-        
-        for(int layer = highestLayer; layer >= 0; layer--)
+        if(layerColor.HasValue)
         {
-            BrickColor? layerColor = gridManager.CheckCompletedLayerWithColor(layer);
-            
-            if(layerColor.HasValue)
-            {
-                Debug.Log($"🎉 KATMAN {layer} TAMAMLANDI! Renk: {layerColor.Value}, Efektler başlatılıyor...");
-                
-                effectManager.ClearLayerWithEffects(layer);
-                foundCompletedLayer = true;
-                break;
-            }
-        }
-        
-        if(!foundCompletedLayer)
-        {
-            Debug.Log("❌ Hiçbir katman tamamlanmamış (doluluk veya renk şartı sağlanmıyor)");
+            // SADECE EffectManager'ı çağır, başka hiçbir şey yapma!
+            effectManager.ClearLayerWithEffects(layer);
+            break;
         }
     }
+}
+
+
     
     public Vector2Int GetBrickGridPosition(GameObject brick)
     {
@@ -697,5 +799,14 @@ public class GameManager : MonoBehaviour
         levelBrickNames.Clear();
         levelBrickNames.AddRange(GetAllBrickNames());
         Debug.Log($"🔧 Tüm brick'ler kullanılacak: {levelBrickNames.Count} brick");
+    }
+    
+    // YENİ: Düşüş çizgisini temizle (sahne değişikliklerinde)
+    void OnDestroy()
+    {
+        if (fallLine != null && fallLine.gameObject != null)
+        {
+            Destroy(fallLine.gameObject);
+        }
     }
 }

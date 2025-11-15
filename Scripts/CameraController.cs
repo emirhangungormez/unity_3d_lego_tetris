@@ -1,154 +1,239 @@
 using UnityEngine;
+using UnityEngine.UI;
 
 public class CameraController : MonoBehaviour
 {
     [Header("References")]
     public Transform target;
+    public GridManager gridManager;
     
-    [Header("Zoom Settings")]
-    public float distance = 15f;
-    public float minDistance = 3f;
-    public float maxDistance = 30f;
-    public float zoomSpeed = 8f;
-    public float mobileZoomSensitivity = 0.1f;
-    public float zoomSmoothness = 5f;
-    
-    [Header("Rotation Settings")]
+    [Header("Rotation")]
     public float rotationSpeed = 2f;
     public float verticalAngleLimit = 80f;
     public float downwardAngleLimit = 10f;
     public float rotationSmoothness = 5f;
     
-    [Header("Reset Settings")]
+    [Header("Camera Height")]
+    public float heightOffset = 3f; // YENİ: Kamera yükseklik ofseti
+    
+    [Header("Reset")]
     public float resetSmoothness = 2f;
     public Vector3 defaultPosition = new Vector3(17.45f, 11.9f, -9.57f);
-    public Quaternion defaultRotation = new Quaternion(0.199964f, -0.373612f, 0.082827f, 0.90198f);
+    public Quaternion defaultRotation = Quaternion.Euler(11.5f, -43.9f, 0f);
     
-    private float currentX, currentY;
-    private float targetX, targetY;
-    private float targetDistance;
+    [Header("Overlay Image")]
+    public Sprite overlayImage;
+    public float imageDistance = 2f;
+    public Vector3 imageScale = new Vector3(0.3f, 0.3f, 0.3f);
+    public Vector3 imageRotation = new Vector3(0f, 0f, 90f);
+    public bool maintainAspectRatio = true;
+    
+    private float currentX, currentY, targetX, targetY;
     private bool isResetting;
     private float resetProgress;
     private Vector3 defaultEulerAngles;
+    private GameObject imageObject;
+    private Canvas imageCanvas;
+    private Image imageComponent;
+    private RectTransform imageRectTransform;
+    private Vector3 currentImageScale, currentImageRotation;
+    private bool imageInitialized = false;
+    private Vector3 gridCenterOffset = Vector3.zero;
 
     void Start()
     {
         defaultEulerAngles = defaultRotation.eulerAngles;
         currentX = targetX = defaultEulerAngles.y;
         currentY = targetY = defaultEulerAngles.x;
-        targetDistance = distance;
+        
+        FindAndSetupGridManager();
+        CreateOverlayImage();
         UpdateCameraPosition();
+        ForceUpdateImageTransform();
+        imageInitialized = true;
     }
     
     void Update()
     {
-        if (target == null) 
-        {
-            Debug.LogWarning("Kamera target'ı bulunamadı!");
-            return;
-        }
+        UpdateTargetPosition();
+        if (!target) return;
         
-        if (!isResetting)
+        if (!isResetting) HandleInput();
+        else HandleCameraReset();
+        
+        UpdateCameraSmoothly();
+        if (imageInitialized) UpdateImagePositionAndRotation();
+    }
+    
+    #region Grid Management
+    void FindAndSetupGridManager()
+    {
+        if (!gridManager) gridManager = FindObjectOfType<GridManager>();
+        if (gridManager) CalculateGridCenter();
+    }
+    
+    void CalculateGridCenter()
+    {
+        if (!gridManager) return;
+        gridCenterOffset = new Vector3(gridManager.GridWidth * gridManager.cellSize / 2f, 0f, gridManager.GridHeight * gridManager.cellSize / 2f);
+    }
+    
+    void UpdateTargetPosition()
+    {
+        if (gridManager)
         {
-            HandleInput();
+            if (!target) target = new GameObject("CameraTarget").transform;
+            // YENİ: heightOffset eklendi
+            target.position = gridManager.transform.position + gridCenterOffset + Vector3.up * heightOffset;
+        }
+    }
+    #endregion
+
+    #region Overlay Image
+    void CreateOverlayImage()
+    {
+        imageCanvas = new GameObject("OverlayCanvas").AddComponent<Canvas>();
+        imageCanvas.transform.SetParent(transform);
+        imageCanvas.renderMode = RenderMode.WorldSpace;
+        imageCanvas.gameObject.AddComponent<CanvasRenderer>();
+        
+        imageObject = new GameObject("OverlayImage");
+        imageObject.transform.SetParent(imageCanvas.transform);
+        imageRectTransform = imageObject.AddComponent<RectTransform>();
+        imageRectTransform.pivot = imageRectTransform.anchorMin = imageRectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+        imageRectTransform.anchoredPosition = Vector2.zero;
+        imageRectTransform.sizeDelta = new Vector2(100f, 100f);
+        
+        imageComponent = imageObject.AddComponent<Image>();
+        if (overlayImage)
+        {
+            imageComponent.sprite = overlayImage;
+            imageComponent.preserveAspect = maintainAspectRatio;
         }
         else
         {
-            HandleCameraReset();
+            imageComponent.color = new Color(1f, 0.5f, 0.5f, 0.8f);
         }
         
-        UpdateCameraSmoothly();
+        currentImageScale = imageScale;
+        currentImageRotation = imageRotation;
     }
     
+    void ForceUpdateImageTransform()
+    {
+        if (!imageObject) return;
+        imageCanvas.transform.localScale = imageScale;
+        currentImageScale = imageScale;
+        imageObject.transform.localRotation = Quaternion.Euler(imageRotation);
+        currentImageRotation = imageRotation;
+        UpdateImagePositionAndRotation();
+    }
+    
+    void UpdateImageTransform()
+    {
+        if (!imageObject) return;
+        
+        if (currentImageScale != imageScale)
+        {
+            imageCanvas.transform.localScale = imageScale;
+            currentImageScale = imageScale;
+        }
+        
+        if (currentImageRotation != imageRotation)
+        {
+            imageObject.transform.localRotation = Quaternion.Euler(imageRotation);
+            currentImageRotation = imageRotation;
+        }
+        
+        UpdateImagePositionAndRotation();
+    }
+    
+    void UpdateImagePositionAndRotation()
+    {
+        if (!imageCanvas) return;
+        imageCanvas.transform.position = transform.position + transform.forward * imageDistance;
+        imageCanvas.transform.rotation = Quaternion.LookRotation(transform.forward);
+    }
+    #endregion
+
+    #region Input Handling
     void HandleInput()
     {
-        HandleCameraRotation();
-        HandleCameraZoom();
-        
-        if (Input.GetKeyDown(KeyCode.C))
-        {
-            StartCameraReset();
-        }
-    }
-    
-    void HandleCameraRotation()
-    {
         Vector2 input = GetRotationInput();
-        
         if (input != Vector2.zero)
         {
             targetX += input.x * rotationSpeed;
             targetY -= input.y * rotationSpeed;
             targetY = Mathf.Clamp(targetY, -downwardAngleLimit, verticalAngleLimit);
         }
+        if (Input.GetKeyDown(KeyCode.C)) StartCameraReset();
     }
     
     Vector2 GetRotationInput()
     {
-        Vector2 input = Vector2.zero;
-        
-        // Mouse input
         if (Input.GetMouseButton(0) || Input.GetMouseButton(1))
-        {
-            input = new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
-        }
-        // Touch input
-        else if (Input.touchCount == 1)
+            return new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
+        
+        if (Input.touchCount == 1)
         {
             Touch touch = Input.GetTouch(0);
-            if (touch.phase == TouchPhase.Moved)
+            if (touch.phase == TouchPhase.Moved) return touch.deltaPosition * 0.02f;
+        }
+        return Vector2.zero;
+    }
+    #endregion
+
+    #region Camera Control
+    void UpdateCameraSmoothly()
+    {
+        if (isResetting)
+        {
+            resetProgress = Mathf.Clamp01(resetProgress + Time.deltaTime * resetSmoothness);
+            float smoothProgress = SmoothStep(resetProgress);
+            
+            currentX = Mathf.LerpAngle(currentX, targetX, smoothProgress);
+            currentY = Mathf.LerpAngle(currentY, targetY, smoothProgress);
+            
+            if (resetProgress >= 1f)
             {
-                input = touch.deltaPosition * 0.02f;
+                isResetting = false;
+                currentX = targetX;
+                currentY = targetY;
             }
         }
-        
-        return input;
+        else
+        {
+            float rotationLerp = 1f - Mathf.Exp(-rotationSmoothness * Time.deltaTime);
+            currentX = Mathf.LerpAngle(currentX, targetX, rotationLerp);
+            currentY = Mathf.LerpAngle(currentY, targetY, rotationLerp);
+        }
+        UpdateCameraPosition();
     }
     
-    void HandleCameraZoom()
+    void UpdateCameraPosition()
     {
-        float zoomInput = GetZoomInput();
-        
-        if (zoomInput != 0)
+        if (!target) return;
+        Quaternion rotation = Quaternion.Euler(currentY, currentX, 0);
+        transform.rotation = rotation;
+        transform.position = target.position + rotation * Vector3.back * Vector3.Distance(transform.position, target.position);
+    }
+    
+    void HandleCameraReset()
+    {
+        resetProgress += Time.deltaTime * resetSmoothness;
+        if (resetProgress >= 1f)
         {
-            targetDistance -= zoomInput;
-            targetDistance = Mathf.Clamp(targetDistance, minDistance, maxDistance);
+            resetProgress = 1f;
+            isResetting = false;
+            currentX = targetX;
+            currentY = targetY;
+            UpdateCameraPosition();
         }
     }
-    
-    float GetZoomInput()
-    {
-        // Mouse wheel
-        float scroll = Input.GetAxis("Mouse ScrollWheel");
-        if (scroll != 0) return scroll * zoomSpeed;
-        
-        // Mobile pinch zoom
-        if (Input.touchCount == 2)
-        {
-            Touch touch1 = Input.GetTouch(0);
-            Touch touch2 = Input.GetTouch(1);
-            
-            Vector2 touch1PrevPos = touch1.position - touch1.deltaPosition;
-            Vector2 touch2PrevPos = touch2.position - touch2.deltaPosition;
-            
-            float prevMagnitude = (touch1PrevPos - touch2PrevPos).magnitude;
-            float currentMagnitude = (touch1.position - touch2.position).magnitude;
-            
-            return (prevMagnitude - currentMagnitude) * mobileZoomSensitivity;
-        }
-        
-        // Keyboard
-        if (Input.GetKey(KeyCode.Plus) || Input.GetKey(KeyCode.Equals)) return zoomSpeed * Time.deltaTime;
-        if (Input.GetKey(KeyCode.Minus)) return -zoomSpeed * Time.deltaTime;
-        
-        return 0;
-    }
-    
-    // UI BUTON FONKSİYONU
-    public void OnResetCameraButton()
-    {
-        StartCameraReset();
-    }
+    #endregion
+
+    #region Public Methods
+    public void OnResetCameraButton() => StartCameraReset();
     
     void StartCameraReset()
     {
@@ -156,79 +241,56 @@ public class CameraController : MonoBehaviour
         resetProgress = 0f;
         targetX = defaultEulerAngles.y;
         targetY = defaultEulerAngles.x;
-        targetDistance = 15f;
-        
-        Debug.Log($"🔄 Kamera sıfırlanıyor...");
+        imageScale = new Vector3(0.3f, 0.3f, 0.3f);
+        imageRotation = new Vector3(0f, 0f, 90f);
     }
     
-    void HandleCameraReset()
+    public void SetGridManager(GridManager newGridManager)
     {
-        resetProgress += Time.deltaTime * resetSmoothness;
-        
-        if (resetProgress >= 1f)
+        gridManager = newGridManager;
+        if (gridManager) CalculateGridCenter();
+    }
+    
+    public void RecalculateGridCenter() => CalculateGridCenter();
+    
+    public void SetImageScale(Vector3 newScale) { imageScale = newScale; if (imageInitialized) UpdateImageTransform(); }
+    public void SetImageScaleX(float x) { imageScale.x = x; if (imageInitialized) UpdateImageTransform(); }
+    public void SetImageScaleY(float y) { imageScale.y = y; if (imageInitialized) UpdateImageTransform(); }
+    public void SetImageScaleZ(float z) { imageScale.z = z; if (imageInitialized) UpdateImageTransform(); }
+    public void SetImageRotation(Vector3 newRotation) { imageRotation = newRotation; if (imageInitialized) UpdateImageTransform(); }
+    public void SetImageRotationX(float x) { imageRotation.x = x; if (imageInitialized) UpdateImageTransform(); }
+    public void SetImageRotationY(float y) { imageRotation.y = y; if (imageInitialized) UpdateImageTransform(); }
+    public void SetImageRotationZ(float z) { imageRotation.z = z; if (imageInitialized) UpdateImageTransform(); }
+    
+    public void SetOverlayImage(Sprite newImage)
+    {
+        overlayImage = newImage;
+        if (imageComponent)
         {
-            resetProgress = 1f;
-            isResetting = false;
-            currentX = targetX;
-            currentY = targetY;
-            distance = targetDistance;
-            UpdateCameraPosition();
-            
-            Debug.Log($"✅ Kamera sıfırlandı: distance={distance}");
+            imageComponent.sprite = newImage;
+            imageComponent.preserveAspect = maintainAspectRatio;
         }
     }
-    
-    void UpdateCameraSmoothly()
-    {
-        if (isResetting)
-        {
-            float smoothProgress = SmoothStep(resetProgress);
-            currentX = Mathf.LerpAngle(currentX, targetX, smoothProgress);
-            currentY = Mathf.LerpAngle(currentY, targetY, smoothProgress);
-            distance = Mathf.Lerp(distance, targetDistance, smoothProgress);
-        }
-        else
-        {
-            currentX = Mathf.LerpAngle(currentX, targetX, rotationSmoothness * Time.deltaTime);
-            currentY = Mathf.LerpAngle(currentY, targetY, rotationSmoothness * Time.deltaTime);
-            distance = Mathf.Lerp(distance, targetDistance, zoomSmoothness * Time.deltaTime);
-        }
-        
-        UpdateCameraPosition();
-    }
-    
-    void UpdateCameraPosition()
-    {
-        if (target == null) return;
-        
-        Quaternion rotation = Quaternion.Euler(currentY, currentX, 0);
-        Vector3 direction = rotation * Vector3.back;
-        Vector3 desiredPosition = target.position + direction * distance;
-        
-        transform.rotation = rotation;
-        transform.position = desiredPosition;
-    }
-    
+    #endregion
+
+    #region Utility
     float SmoothStep(float t) => t * t * t * (t * (6f * t - 15f) + 10f);
     
-    void OnValidate()
-    {
-        if (target != null && Application.isPlaying)
-        {
-            UpdateCameraPosition();
-        }
-    }
+    void OnValidate() { if (Application.isPlaying && imageInitialized) UpdateImageTransform(); }
     
     void OnDrawGizmos()
     {
-        if (target != null)
+        if (target)
         {
             Gizmos.color = Color.yellow;
             Gizmos.DrawWireSphere(target.position, 0.5f);
             Gizmos.DrawLine(target.position, transform.position);
-            
-            Gizmos.color = Color.blue;
-            Gizmos.DrawWireSphere(target.position, distance);
+            if (gridManager)
+            {
+                Gizmos.color = Color.red;
+                Gizmos.DrawWireSphere(target.position, 0.3f);
+            }
         }
     }
+    #endregion
 }
