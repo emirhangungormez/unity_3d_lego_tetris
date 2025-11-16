@@ -20,8 +20,8 @@ public class GameManager : MonoBehaviour
         public List<GameObject> brickPrefabs;
         
         [Header("Fall Physics")]
-        public float initialFallSpeed = 0.1f;
-        public float maxFallSpeed = 1f;
+        public float initialFallSpeed = 3f;    // 3 yap
+        public float maxFallSpeed = 5f;        // 5 yap
         public float accelerationRate = 0.5f;
         public float decelerationDistance = 3f;
         public float snapSpeed = 0.2f;
@@ -35,11 +35,9 @@ public class GameManager : MonoBehaviour
         public float wobbleFrequency = 2f;
         public float wobbleDecay = 2f;
         
-        [Header("Fall Line Visual")]
-        public Color fallLineStartColor = new Color(1f, 1f, 1f, 0.7f);
-        public Color fallLineEndColor = new Color(0.3f, 0.3f, 0.3f, 0.7f);
-        public float fallLineStartWidth = 0.3f;
-        public float fallLineEndWidth = 0.15f;
+        [Header("Silhouette Settings")]
+        public Color silhouetteColor = new Color(1f, 1f, 1f, 0.5f);
+        public Material silhouetteMaterial;
         
         [Header("UI References")]
         public Button pauseButton;
@@ -78,12 +76,12 @@ public class GameManager : MonoBehaviour
     [HideInInspector] public List<GameObject> landedBricks = new List<GameObject>();
     
     private GameObject currentBrick;
+    private GameObject silhouetteBrick; // YENİ: Silüet brick
     public Vector2Int currentGridPosition, brickSize;
     private bool isFalling, hasLanded, isDecelerating, isSnapping, isSettling, isPaused, isGameActive = true;
     private float currentFallSpeed, settleTimer, targetSettleY, overshootY, currentWobble, wobbleTimer, currentTime;
     private Vector3 originalRotation;
     private BrickColor currentBrickColor;
-    private LineRenderer fallLine;
     private int currentPauseChances;
     private const float START_Y = 20f;
 
@@ -92,54 +90,103 @@ public class GameManager : MonoBehaviour
         currentFallSpeed = settings.initialFallSpeed;
         currentPauseChances = settings.maxPauseChances;
         currentTime = levelTime;
-        CreateFallLine();
         UpdatePauseUI();
         UpdateTimerUI();
         StartCoroutine(GameTimer());
         SpawnNewBrick();
     }
     
-    void CreateFallLine()
+    // YENİ: Silüet oluştur
+    void CreateSilhouette()
     {
-        var lineObj = new GameObject("FallLine");
-        fallLine = lineObj.AddComponent<LineRenderer>();
-        fallLine.material = new Material(Shader.Find("Sprites/Default"));
-        fallLine.startColor = settings.fallLineStartColor;
-        fallLine.endColor = settings.fallLineEndColor;
-        fallLine.startWidth = settings.fallLineStartWidth;
-        fallLine.endWidth = settings.fallLineEndWidth;
-        fallLine.positionCount = 2;
-        fallLine.useWorldSpace = true;
-        fallLine.numCapVertices = 5;
-        fallLine.enabled = false;
-    }
-    
-    void UpdateFallLine()
-    {
-        if (currentBrick == null || !isFalling || hasLanded || isPaused)
+        if (silhouetteBrick != null)
+            Destroy(silhouetteBrick);
+
+        if (currentBrick == null) return;
+
+        // Mevcut brick'in kopyasını oluştur
+        silhouetteBrick = Instantiate(currentBrick);
+        silhouetteBrick.name = "SilhouetteBrick";
+        
+        // Tüm renderer'ları al ve silüet materyalini uygula
+        foreach (var renderer in silhouetteBrick.GetComponentsInChildren<Renderer>())
         {
-            if (fallLine != null) fallLine.enabled = false;
+            if (settings.silhouetteMaterial != null)
+            {
+                renderer.material = new Material(settings.silhouetteMaterial);
+                renderer.material.color = settings.silhouetteColor;
+            }
+            else
+            {
+                // Fallback: Basit şeffaf beyaz material
+                var mat = new Material(Shader.Find("Standard"));
+                mat.color = settings.silhouetteColor;
+                mat.SetFloat("_Mode", 2); // Transparent mode
+                mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                mat.SetInt("_ZWrite", 0);
+                mat.DisableKeyword("_ALPHATEST_ON");
+                mat.EnableKeyword("_ALPHABLEND_ON");
+                mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+                mat.renderQueue = 3000;
+                renderer.material = mat;
+            }
+        }
+
+        // Collider'ları devre dışı bırak
+        foreach (var collider in silhouetteBrick.GetComponentsInChildren<Collider>())
+        {
+            collider.enabled = false;
+        }
+    }
+
+    void UpdateSilhouette()
+    {
+        if (silhouetteBrick == null || currentBrick == null || hasLanded || isPaused)
+        {
+            if (silhouetteBrick != null)
+                silhouetteBrick.SetActive(false);
             return;
         }
+
+        float targetY = settings.gridManager.GetRequiredHeight(currentGridPosition, brickSize);
+        float currentY = currentBrick.transform.position.y;
+        float distanceToTarget = Mathf.Abs(currentY - targetY);
         
-        fallLine.enabled = true;
-        var startPos = currentBrick.transform.position;
-        var targetY = settings.gridManager.GetRequiredHeight(currentGridPosition, brickSize);
-        var endPos = new Vector3(startPos.x, targetY, startPos.z);
+        // 1.3f'ten 0'a doğru alpha değerini azalt
+        float alpha = Mathf.Clamp01(distanceToTarget / 3.9f);
         
-        fallLine.SetPosition(0, startPos);
-        fallLine.SetPosition(1, endPos);
-        
-        float distance = Mathf.Abs(startPos.y - targetY);
-        float colorLerp = Mathf.Clamp01(1f - (distance / settings.decelerationDistance));
-        var targetColor = Color.Lerp(new Color(1f, 1f, 1f, 0.7f), new Color(0.3f, 0.3f, 0.3f, 0.7f), colorLerp);
-        
-        fallLine.startColor = targetColor;
-        fallLine.endColor = targetColor;
-        
-        float widthLerp = Mathf.Clamp01(distance / settings.decelerationDistance);
-        fallLine.startWidth = Mathf.Lerp(settings.fallLineEndWidth, settings.fallLineStartWidth, widthLerp);
-        fallLine.endWidth = settings.fallLineEndWidth;
+        if (alpha <= 0.01f)
+        {
+            silhouetteBrick.SetActive(false);
+        }
+        else
+        {
+            silhouetteBrick.SetActive(true);
+            
+            // Alpha değerini güncelle
+            foreach (var renderer in silhouetteBrick.GetComponentsInChildren<Renderer>())
+            {
+                var color = renderer.material.color;
+                color.a = alpha * 0.5f; // Orijinal alpha (0.5) ile çarp
+                renderer.material.color = color;
+            }
+            
+            Vector3 targetPosition = settings.gridManager.GetGridPosition(currentGridPosition, brickSize);
+            targetPosition.y = targetY;
+            silhouetteBrick.transform.position = targetPosition;
+            silhouetteBrick.transform.rotation = currentBrick.transform.rotation;
+        }
+    }
+
+    // YENİ: Silüeti temizle
+    void ClearSilhouette()
+    {
+        if (silhouetteBrick != null)
+        {
+            Destroy(silhouetteBrick);
+            silhouetteBrick = null;
+        }
     }
     
     IEnumerator GameTimer()
@@ -175,7 +222,7 @@ public class GameManager : MonoBehaviour
     void GameOver()
     {
         isGameActive = false;
-        if (fallLine != null) fallLine.enabled = false;
+        ClearSilhouette();
     }
     
     public void OnPauseButtonClicked()
@@ -186,7 +233,6 @@ public class GameManager : MonoBehaviour
         {
             isPaused = true;
             if (currentPauseChances > 0) currentPauseChances--;
-            if (fallLine != null) fallLine.enabled = false;
         }
         else
         {
@@ -233,6 +279,9 @@ public class GameManager : MonoBehaviour
         ApplyBrickTexture(currentBrick, currentBrickColor);
         CalculateBrickSize();
         InitializeBrickPosition();
+        
+        // YENİ: Silüet oluştur
+        CreateSilhouette();
     }
     
     List<GameObject> GetBricksFromNames(List<string> brickNames)
@@ -279,7 +328,9 @@ public class GameManager : MonoBehaviour
         isFalling = hasLanded = isDecelerating = isSnapping = isSettling = false;
         currentFallSpeed = settings.initialFallSpeed;
         settleTimer = currentWobble = wobbleTimer = 0f;
-        if (fallLine != null) fallLine.enabled = false;
+        
+        // YENİ: Silüeti temizle
+        ClearSilhouette();
     }
     
     void ApplyBrickTexture(GameObject brick, BrickColor color)
@@ -342,7 +393,9 @@ public class GameManager : MonoBehaviour
         var newSize = new Vector2Int(brickSize.y, brickSize.x);
         AdjustPositionAfterRotation(newSize);
         brickSize = newSize;
-        UpdateFallLine();
+        
+        // YENİ: Silüeti güncelle
+        UpdateSilhouette();
     }
     
     void AdjustPositionAfterRotation(Vector2Int newSize)
@@ -397,7 +450,8 @@ public class GameManager : MonoBehaviour
             if (!isFalling) StartFalling();
             else HandleFalling();
             
-            UpdateFallLine();
+            // YENİ: Silüeti güncelle (FallLine yerine)
+            UpdateSilhouette();
         }
     }
     
@@ -415,7 +469,8 @@ public class GameManager : MonoBehaviour
         if (newPos != currentGridPosition && settings.gridManager.IsValidPosition(newPos, brickSize))
         {
             MoveBrickToGrid(newPos.x, newPos.y);
-            UpdateFallLine();
+            // YENİ: Silüeti güncelle
+            UpdateSilhouette();
         }
     }
     
@@ -428,7 +483,6 @@ public class GameManager : MonoBehaviour
     {
         isFalling = true;
         currentWobble = settings.wobbleAmount;
-        if (fallLine != null) fallLine.enabled = true;
     }
     
     void HandleFalling()
@@ -543,7 +597,8 @@ public class GameManager : MonoBehaviour
         isSnapping = false;
         isSettling = false;
         
-        if (fallLine != null) fallLine.enabled = false;
+        // YENİ: Silüeti temizle
+        ClearSilhouette();
         
         if (!isPaused) Invoke("SpawnNewBrick", settings.autoFallDelay);
     }
@@ -604,7 +659,6 @@ public class GameManager : MonoBehaviour
     
     void OnDestroy()
     {
-        if (fallLine != null && fallLine.gameObject != null) 
-            Destroy(fallLine.gameObject);
+        ClearSilhouette();
     }
 }
