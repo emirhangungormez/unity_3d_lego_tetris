@@ -577,7 +577,7 @@ MonoBehaviour:
     levelNameText: {fileID: 958765586}
     levelDifficultyImage: {fileID: 2022421589}
     bricksRemainingText: {fileID: 0}
-    scoreText: {fileID: 0}
+    scoreText: {fileID: 1440361650}
     timerText: {fileID: 1084734044}
     winPanel: {fileID: 0}
     losePanel: {fileID: 0}
@@ -595,17 +595,17 @@ MonoBehaviour:
   settings:
     initialFallSpeed: 2.5
     maxFallSpeed: 4
-    accelerationRate: 0.5
+    accelerationRate: 0.7
     decelerationDistance: 3
-    snapSpeed: 1.05
+    snapSpeed: 1.1
     settleOvershoot: 0.1
-    settleDuration: 0.4
-    autoFallDelay: 0.3
+    settleDuration: 0.3
+    autoFallDelay: 0.2
     movementLockDistance: 0.1
     wobbleAmount: 4
     wobbleFrequency: 2
     wobbleDecay: 2
-    silhouetteColor: {r: 1, g: 1, b: 1, a: 0.5}
+    silhouetteColor: {r: 1, g: 1, b: 1, a: 0.29411766}
     silhouetteMaterial: {fileID: 2100000, guid: 8049cf3f1f8fe7a46a76f957588239e9, type: 2}
     pauseSprite: {fileID: 21300000, guid: a070613edf8a34140ad85a06b46329dc, type: 3}
     continueSprite: {fileID: 21300000, guid: 8cb7c0e45d21d1f4abbcde39778fd5fa, type: 3}
