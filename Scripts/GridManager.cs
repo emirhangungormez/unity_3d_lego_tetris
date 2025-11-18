@@ -5,7 +5,7 @@ using System.Linq;
 public class GridManager : MonoBehaviour
 {
     [Header("Grid Settings")]
-    public Vector2 gridSize = new Vector2(8, 8);
+    public Vector2 gridSize = new Vector2(4, 4);
     public float cellSize = 1f;
     public float layerHeight = 1.3f;
     
@@ -15,11 +15,12 @@ public class GridManager : MonoBehaviour
     public float plateYPosition = -0.4f;
 
     private List<GameObject> gridPlateBricks = new List<GameObject>();
-    private GameManager.BrickColor[,] gridPlateColors;
+    private LevelManager.BrickColor[,] gridPlateColors;
     private GameObject[,,] gridCells;
-    private GameManager.BrickColor[,,] gridCellColors;
+    private LevelManager.BrickColor[,,] gridCellColors;
     private Dictionary<GameObject, Vector3Int> brickPositions = new Dictionary<GameObject, Vector3Int>();
     private int currentHighestLayer = 0;
+    private LevelManager levelManager;
 
     public int GridWidth => (int)gridSize.x;
     public int GridHeight => (int)gridSize.y;
@@ -27,15 +28,15 @@ public class GridManager : MonoBehaviour
 
     void Start()
     {
+        levelManager = FindObjectOfType<LevelManager>();
         InitializeGrid();
-        CreateGridPlates();
     }
 
     public void InitializeGrid()
     {
         gridCells = new GameObject[GridWidth, GridHeight, 100];
-        gridCellColors = new GameManager.BrickColor[GridWidth, GridHeight, 100];
-        gridPlateColors = new GameManager.BrickColor[GridWidth, GridHeight];
+        gridCellColors = new LevelManager.BrickColor[GridWidth, GridHeight, 100];
+        gridPlateColors = new LevelManager.BrickColor[GridWidth, GridHeight];
         brickPositions.Clear();
         currentHighestLayer = 0;
         
@@ -43,6 +44,7 @@ public class GridManager : MonoBehaviour
         CreateGridPlates();
     }
 
+    #region Grid Plate Management
     private void CreateGridPlates()
     {
         ClearGridPlates();
@@ -85,9 +87,9 @@ public class GridManager : MonoBehaviour
         plate.name = $"GridPlate_{placement.gridX}_{placement.gridY}_{placement.width}x{placement.height}";
         
         plate.transform.position = new Vector3(
-            placement.gridX * cellSize + (placement.width * cellSize * 0.5f),
-            plateYPosition,
-            placement.gridY * cellSize + (placement.height * cellSize * 0.5f)
+            transform.position.x + placement.gridX * cellSize + (placement.width * cellSize * 0.5f),
+            transform.position.y + plateYPosition,
+            transform.position.z + placement.gridY * cellSize + (placement.height * cellSize * 0.5f)
         );
 
         for (int x = placement.gridX; x < placement.gridX + placement.width; x++)
@@ -100,8 +102,8 @@ public class GridManager : MonoBehaviour
 
     private void ApplyPlateColors()
     {
-        var gameManager = FindObjectOfType<GameManager>();
-        if (!gameManager) return;
+        if (levelManager == null) levelManager = FindObjectOfType<LevelManager>();
+        if (!levelManager) return;
 
         gridPlateBricks.ForEach(plate => 
             plate.GetComponentsInChildren<Renderer>().ToList().ForEach(renderer => 
@@ -112,7 +114,7 @@ public class GridManager : MonoBehaviour
                 if (isColorPlate)
                 {
                     var color = GetRandomPlateColor();
-                    var settings = gameManager.availableColors.Find(c => c.colorType == color) ?? gameManager.availableColors[0];
+                    var settings = levelManager.GetColorSettings(color);
                     material.mainTextureScale = settings.tiling;
                     material.mainTextureOffset = settings.offset;
                 }
@@ -125,12 +127,52 @@ public class GridManager : MonoBehaviour
         );
     }
 
+    private void ClearGridPlates()
+    {
+        gridPlateBricks.ForEach(Destroy);
+        gridPlateBricks.Clear();
+    }
+
+    private GameObject GetPlateBrick(int w, int h) => 
+        plateBrickPrefabs.Find(p => p.name.Contains($"{w}x{h}"));
+
+    private LevelManager.BrickColor GetRandomPlateColor()
+    {
+        if (levelManager == null) levelManager = FindObjectOfType<LevelManager>();
+        if (!levelManager) return LevelManager.BrickColor.Gray;
+        
+        var colors = levelManager.GetCurrentLevelColors();
+        return colors.Count > 0 
+            ? colors[Random.Range(0, colors.Count)]
+            : LevelManager.BrickColor.Gray;
+    }
+
+    private bool IsAreaEmpty(bool[,] covered, int x, int y, int w, int h)
+    {
+        for (int i = x; i < x + w; i++)
+        for (int j = y; j < y + h; j++)
+            if (i >= covered.GetLength(0) || j >= covered.GetLength(1) || covered[i, j])
+                return false;
+        return true;
+    }
+
+    private void MarkArea(bool[,] covered, int x, int y, int w, int h, bool value)
+    {
+        for (int i = x; i < x + w; i++)
+        for (int j = y; j < y + h; j++)
+            if (i < covered.GetLength(0) && j < covered.GetLength(1))
+                covered[i, j] = value;
+    }
+    #endregion
+
+    #region Grid Position & Validation
     public bool IsValidPosition(Vector2Int pos, Vector2Int size) =>
         pos.x >= 0 && pos.y >= 0 && pos.x + size.x <= GridWidth && pos.y + size.y <= GridHeight;
     
     public Vector3 GetGridPosition(Vector2Int gridPos, Vector2Int size) => new Vector3(
-        gridPos.x * cellSize + (size.x * cellSize * 0.5f), 0,
-        gridPos.y * cellSize + (size.y * cellSize * 0.5f)
+        transform.position.x + gridPos.x * cellSize + (size.x * cellSize * 0.5f),
+        transform.position.y,
+        transform.position.z + gridPos.y * cellSize + (size.y * cellSize * 0.5f)
     );
     
     public float GetRequiredHeight(Vector2Int gridPos, Vector2Int size)
@@ -147,7 +189,7 @@ public class GridManager : MonoBehaviour
             }
         }
         
-        return (maxLayer + 1) * layerHeight;
+        return transform.position.y + (maxLayer + 1) * layerHeight;
     }
     
     public int GetMaxLayerAtPosition(Vector2Int gridPos, Vector2Int size)
@@ -166,8 +208,18 @@ public class GridManager : MonoBehaviour
         
         return maxLayer + 1;
     }
+    
+    private int GetTopLayerAt(int x, int y)
+    {
+        for (int layer = currentHighestLayer; layer >= 0; layer--)
+            if (gridCells[x, y, layer] != null)
+                return layer;
+        return -1;
+    }
+    #endregion
 
-    public void PlaceBrick(Vector2Int gridPos, Vector2Int size, GameObject brick, GameManager.BrickColor color)
+    #region Brick Placement & Storage
+    public void PlaceBrick(Vector2Int gridPos, Vector2Int size, GameObject brick, LevelManager.BrickColor color)
     {
         int maxLayer = -1;
         
@@ -196,99 +248,6 @@ public class GridManager : MonoBehaviour
         currentHighestLayer = Mathf.Max(currentHighestLayer, targetLayer);
     }
     
-    public List<Vector2Int> FindMatchingLineInLayer(int layer)
-    {
-        for (int y = 0; y < GridHeight; y++)
-        {
-            GameManager.BrickColor? firstColor = null;
-            List<Vector2Int> rowPositions = new List<Vector2Int>();
-            bool isComplete = true;
-            
-            for (int x = 0; x < GridWidth; x++)
-            {
-                if (gridCells[x, y, layer] == null)
-                {
-                    isComplete = false;
-                    break;
-                }
-                
-                var cellColor = gridCellColors[x, y, layer];
-                
-                if (firstColor == null)
-                {
-                    firstColor = cellColor;
-                }
-                else if (cellColor != firstColor)
-                {
-                    isComplete = false;
-                    break;
-                }
-                
-                rowPositions.Add(new Vector2Int(x, y));
-            }
-            
-            if (isComplete && rowPositions.Count == GridWidth)
-            {
-                return rowPositions;
-            }
-        }
-        
-        for (int x = 0; x < GridWidth; x++)
-        {
-            GameManager.BrickColor? firstColor = null;
-            List<Vector2Int> colPositions = new List<Vector2Int>();
-            bool isComplete = true;
-            
-            for (int y = 0; y < GridHeight; y++)
-            {
-                if (gridCells[x, y, layer] == null)
-                {
-                    isComplete = false;
-                    break;
-                }
-                
-                var cellColor = gridCellColors[x, y, layer];
-                
-                if (firstColor == null)
-                {
-                    firstColor = cellColor;
-                }
-                else if (cellColor != firstColor)
-                {
-                    isComplete = false;
-                    break;
-                }
-                
-                colPositions.Add(new Vector2Int(x, y));
-            }
-            
-            if (isComplete && colPositions.Count == GridHeight)
-            {
-                return colPositions;
-            }
-        }
-        
-        return new List<Vector2Int>();
-    }
-    
-    public GameObject GetBrickAt(int x, int y, int layer)
-    {
-        if (x >= 0 && x < GridWidth && y >= 0 && y < GridHeight && layer >= 0 && layer < 100)
-        {
-            return gridCells[x, y, layer];
-        }
-        return null;
-    }
-    
-    public GameManager.BrickColor GetBrickColorAt(int x, int y, int layer)
-    {
-        if (x >= 0 && x < GridWidth && y >= 0 && y < GridHeight && layer >= 0 && layer < 100)
-        {
-            return gridCellColors[x, y, layer];
-        }
-        return GameManager.BrickColor.Orange;
-    }
-    
     public void RemoveBrickFromGrid(GameObject brick)
     {
         if (!brickPositions.ContainsKey(brick)) return;
@@ -310,49 +269,6 @@ public class GridManager : MonoBehaviour
         
         brickPositions.Remove(brick);
         RecalculateHighestLayer();
-    }
-    
-    public List<GameObject> GetBricksAboveLayer(int layer)
-    {
-        HashSet<GameObject> bricks = new HashSet<GameObject>();
-        
-        for (int l = layer + 1; l <= currentHighestLayer; l++)
-        {
-            for (int x = 0; x < GridWidth; x++)
-            {
-                for (int y = 0; y < GridHeight; y++)
-                {
-                    var brick = gridCells[x, y, l];
-                    if (brick != null)
-                    {
-                        bricks.Add(brick);
-                    }
-                }
-            }
-        }
-        
-        return new List<GameObject>(bricks);
-    }
-    
-    public float GetRequiredHeightForBrick(GameObject brick)
-    {
-        if (!brickPositions.ContainsKey(brick)) return 0f;
-        
-        Vector3Int pos = brickPositions[brick];
-        Vector2Int brickSize = GetBrickSize(brick);
-        
-        int maxLayer = -1;
-        for (int x = pos.x; x < pos.x + brickSize.x && x < GridWidth; x++)
-        {
-            for (int y = pos.y; y < pos.y + brickSize.y && y < GridHeight; y++)
-            {
-                int topLayer = GetTopLayerAt(x, y);
-                if (topLayer > maxLayer)
-                    maxLayer = topLayer;
-            }
-        }
-        
-        return (maxLayer + 1) * layerHeight;
     }
     
     public void UpdateBrickPosition(GameObject brick)
@@ -400,25 +316,6 @@ public class GridManager : MonoBehaviour
         RecalculateHighestLayer();
     }
     
-    Vector2Int GetBrickSize(GameObject brick)
-    {
-        var parts = brick.name.Split('_');
-        if (parts.Length > 0)
-        {
-            var sizeParts = parts[0].Replace("Brick", "").Split('x');
-            if (sizeParts.Length == 2)
-            {
-                int w, h;
-                if (int.TryParse(sizeParts[0], out w) && int.TryParse(sizeParts[1], out h))
-                {
-                    return new Vector2Int(w, h);
-                }
-            }
-        }
-        
-        return new Vector2Int(1, 1);
-    }
-    
     void RecalculateHighestLayer()
     {
         currentHighestLayer = 0;
@@ -437,46 +334,124 @@ public class GridManager : MonoBehaviour
             }
         }
     }
+    #endregion
 
-    private GameObject GetPlateBrick(int w, int h) => 
-        plateBrickPrefabs.Find(p => p.name.Contains($"{w}x{h}"));
-
-    private GameManager.BrickColor GetRandomPlateColor()
+    #region Line Matching & Queries
+    public List<Vector2Int> FindMatchingLineInLayer(int layer)
     {
-        var gameManager = FindObjectOfType<GameManager>();
-        if (!gameManager) return GameManager.BrickColor.Gray;
+        for (int y = 0; y < GridHeight; y++)
+        {
+            LevelManager.BrickColor? firstColor = null;
+            List<Vector2Int> rowPositions = new List<Vector2Int>();
+            bool isComplete = true;
+            
+            for (int x = 0; x < GridWidth; x++)
+            {
+                if (gridCells[x, y, layer] == null)
+                {
+                    isComplete = false;
+                    break;
+                }
+                
+                var cellColor = gridCellColors[x, y, layer];
+                
+                if (firstColor == null)
+                {
+                    firstColor = cellColor;
+                }
+                else if (cellColor != firstColor)
+                {
+                    isComplete = false;
+                    break;
+                }
+                
+                rowPositions.Add(new Vector2Int(x, y));
+            }
+            
+            if (isComplete && rowPositions.Count == GridWidth)
+            {
+                return rowPositions;
+            }
+        }
         
-        var colors = gameManager.GetCurrentLevelColors();
-        return colors.Count > 0 
-            ? colors[Random.Range(0, colors.Count)]
-            : GameManager.BrickColor.Gray;
+        for (int x = 0; x < GridWidth; x++)
+        {
+            LevelManager.BrickColor? firstColor = null;
+            List<Vector2Int> colPositions = new List<Vector2Int>();
+            bool isComplete = true;
+            
+            for (int y = 0; y < GridHeight; y++)
+            {
+                if (gridCells[x, y, layer] == null)
+                {
+                    isComplete = false;
+                    break;
+                }
+                
+                var cellColor = gridCellColors[x, y, layer];
+                
+                if (firstColor == null)
+                {
+                    firstColor = cellColor;
+                }
+                else if (cellColor != firstColor)
+                {
+                    isComplete = false;
+                    break;
+                }
+                
+                colPositions.Add(new Vector2Int(x, y));
+            }
+            
+            if (isComplete && colPositions.Count == GridHeight)
+            {
+                return colPositions;
+            }
+        }
+        
+        return new List<Vector2Int>();
     }
-
-    private bool IsAreaEmpty(bool[,] covered, int x, int y, int w, int h)
+    
+    public GameObject GetBrickAt(int x, int y, int layer)
     {
-        for (int i = x; i < x + w; i++)
-        for (int j = y; j < y + h; j++)
-            if (i >= covered.GetLength(0) || j >= covered.GetLength(1) || covered[i, j])
-                return false;
-        return true;
+        if (x >= 0 && x < GridWidth && y >= 0 && y < GridHeight && layer >= 0 && layer < 100)
+        {
+            return gridCells[x, y, layer];
+        }
+        return null;
     }
-
-    private void MarkArea(bool[,] covered, int x, int y, int w, int h, bool value)
+    
+    public LevelManager.BrickColor GetBrickColorAt(int x, int y, int layer)
     {
-        for (int i = x; i < x + w; i++)
-        for (int j = y; j < y + h; j++)
-            if (i < covered.GetLength(0) && j < covered.GetLength(1))
-                covered[i, j] = value;
+        if (x >= 0 && x < GridWidth && y >= 0 && y < GridHeight && layer >= 0 && layer < 100)
+        {
+            return gridCellColors[x, y, layer];
+        }
+        return LevelManager.BrickColor.Orange;
     }
-
-    private int GetTopLayerAt(int x, int y)
+    
+    public List<GameObject> GetBricksAboveLayer(int layer)
     {
-        for (int layer = currentHighestLayer; layer >= 0; layer--)
-            if (gridCells[x, y, layer] != null)
-                return layer;
-        return -1;
+        HashSet<GameObject> bricks = new HashSet<GameObject>();
+        
+        for (int l = layer + 1; l <= currentHighestLayer; l++)
+        {
+            for (int x = 0; x < GridWidth; x++)
+            {
+                for (int y = 0; y < GridHeight; y++)
+                {
+                    var brick = gridCells[x, y, l];
+                    if (brick != null)
+                    {
+                        bricks.Add(brick);
+                    }
+                }
+            }
+        }
+        
+        return new List<GameObject>(bricks);
     }
-
+    
     public List<GameObject> GetBricksInLayer(int layer)
     {
         var bricks = new List<GameObject>();
@@ -493,13 +468,91 @@ public class GridManager : MonoBehaviour
         
         return bricks;
     }
-
-    private void ClearGridPlates()
+    
+    public float GetRequiredHeightForBrick(GameObject brick)
     {
-        gridPlateBricks.ForEach(Destroy);
-        gridPlateBricks.Clear();
+        if (!brickPositions.ContainsKey(brick)) return 0f;
+        
+        Vector3Int pos = brickPositions[brick];
+        Vector2Int brickSize = GetBrickSize(brick);
+        
+        int maxLayer = -1;
+        for (int x = pos.x; x < pos.x + brickSize.x && x < GridWidth; x++)
+        {
+            for (int y = pos.y; y < pos.y + brickSize.y && y < GridHeight; y++)
+            {
+                int topLayer = -1;
+                // Find top layer ignoring the brick itself (so moving bricks don't consider themselves)
+                for (int layer = currentHighestLayer; layer >= 0; layer--)
+                {
+                    var cell = gridCells[x, y, layer];
+                    if (cell != null && cell != brick)
+                    {
+                        topLayer = layer;
+                        break;
+                    }
+                }
+                if (topLayer > maxLayer)
+                    maxLayer = topLayer;
+            }
+        }
+        
+        return transform.position.y + (maxLayer + 1) * layerHeight;
     }
-
+    
+    public Vector2Int GetBrickSize(GameObject brick)
+    {
+        var parts = brick.name.Split('x');
+        if (parts.Length == 2)
+        {
+            int width = 0, height = 0;
+            
+            // "Brick1x2" formatı için
+            string firstPart = parts[0];
+            if (firstPart.Length > 0)
+            {
+                char lastChar = firstPart[firstPart.Length - 1];
+                if (char.IsDigit(lastChar))
+                {
+                    width = int.Parse(lastChar.ToString());
+                }
+            }
+            
+            // İkinci kısım
+            string secondPart = parts[1];
+            string numberStr = "";
+            for (int i = 0; i < secondPart.Length; i++)
+            {
+                if (char.IsDigit(secondPart[i]))
+                {
+                    numberStr += secondPart[i];
+                }
+                else break;
+            }
+            
+            if (!string.IsNullOrEmpty(numberStr))
+            {
+                height = int.Parse(numberStr);
+            }
+            
+            if (width > 0 && height > 0)
+            {
+                // If the brick GameObject is rotated (90 or 270 degrees around Y), swap width/height
+                if (brick != null && brick.transform != null)
+                {
+                    float yRot = Mathf.Round(brick.transform.eulerAngles.y) % 360f;
+                    if (Mathf.Abs(Mathf.DeltaAngle(yRot, 90f)) < 1f || Mathf.Abs(Mathf.DeltaAngle(yRot, 270f)) < 1f)
+                    {
+                        return new Vector2Int(height, width);
+                    }
+                }
+                return new Vector2Int(width, height);
+            }
+        }
+        
+        return new Vector2Int(1, 1);
+    }
+    
     public int GetHighestLayer() => currentHighestLayer;
     
     public int GetLayerAtPosition(Vector2Int gridPos, GameObject brick)
@@ -550,16 +603,18 @@ public class GridManager : MonoBehaviour
         return Vector2Int.zero;
     }
     
-    public GameManager.BrickColor GetBrickColor(GameObject brick)
+    public LevelManager.BrickColor GetBrickColor(GameObject brick)
     {
         for (int x = 0; x < GridWidth; x++)
         for (int y = 0; y < GridHeight; y++)
         for (int layer = 0; layer <= currentHighestLayer; layer++)
             if (gridCells[x, y, layer] == brick)
                 return gridCellColors[x, y, layer];
-        return GameManager.BrickColor.Orange;
+        return LevelManager.BrickColor.Orange;
     }
+    #endregion
 
+    #region Utility
     public void SetGridSize(int width, int height)
     {
         gridSize = new Vector2(width, height);
@@ -571,6 +626,7 @@ public class GridManager : MonoBehaviour
         isColorPlate = colorMode;
         ApplyPlateColors();
     }
+    #endregion
 
     void OnDrawGizmos()
     {

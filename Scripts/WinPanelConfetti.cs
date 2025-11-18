@@ -3,6 +3,9 @@ using System.Collections.Generic;
 
 public class WinPanelConfetti : MonoBehaviour
 {
+    [Header("References")]
+    public LevelManager levelManager;
+    
     [Header("Confetti Settings")]
     public GameObject[] confettiBrickPrefabs;
     public int confettiPerSide = 30;
@@ -32,14 +35,16 @@ public class WinPanelConfetti : MonoBehaviour
     private int rightSpawnCount;
     private bool isSpawning = false;
 
+    void Awake()
+    {
+        if (levelManager == null)
+            levelManager = FindObjectOfType<LevelManager>();
+    }
+
     void OnEnable()
     {
+        // Initialize camera reference and ensure confetti is cleaned up.
         mainCamera = Camera.main;
-        leftSpawnCount = confettiPerSide;
-        rightSpawnCount = confettiPerSide;
-        nextSpawnTime = Time.time;
-        isSpawning = true;
-        
         CleanupConfetti();
     }
 
@@ -68,6 +73,23 @@ public class WinPanelConfetti : MonoBehaviour
             
             nextSpawnTime = Time.time + (1f / spawnRatePerSecond);
         }
+    }
+
+    // Call to start confetti effect (e.g. when win panel becomes active)
+    public void StartConfetti()
+    {
+        if (mainCamera == null) mainCamera = Camera.main;
+        leftSpawnCount = confettiPerSide;
+        rightSpawnCount = confettiPerSide;
+        nextSpawnTime = Time.time;
+        isSpawning = true;
+    }
+
+    // Stop and cleanup confetti immediately
+    public void StopConfetti()
+    {
+        isSpawning = false;
+        CleanupConfetti();
     }
 
     private Vector3 GetScreenEdgePosition(bool isLeft)
@@ -148,21 +170,24 @@ public class WinPanelConfetti : MonoBehaviour
 
     private void ApplyRandomColor(GameObject confetti)
     {
-        GameManager gameManager = FindObjectOfType<GameManager>();
-        if (gameManager == null) return;
+        if (levelManager == null)
+        {
+            levelManager = FindObjectOfType<LevelManager>();
+            if (levelManager == null) return;
+        }
 
-        var colors = gameManager.availableColors;
-        if (colors.Count == 0) return;
+        var colors = levelManager.availableColors;
+        if (colors == null || colors.Count == 0) return;
 
-        var randomColor = colors[Random.Range(0, colors.Count)];
+        var randomColorSettings = colors[Random.Range(0, colors.Count)];
         
         foreach (var renderer in confetti.GetComponentsInChildren<Renderer>())
         {
             if (renderer == null) continue;
 
             Material mat = new Material(renderer.material);
-            mat.mainTextureScale = randomColor.tiling;
-            mat.mainTextureOffset = randomColor.offset;
+            mat.mainTextureScale = randomColorSettings.tiling;
+            mat.mainTextureOffset = randomColorSettings.offset;
             renderer.material = mat;
         }
     }

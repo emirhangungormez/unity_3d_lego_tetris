@@ -1,8 +1,13 @@
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 
 public class EffectManager : MonoBehaviour
 {
+    [Header("References")]
+    public GameManager gameManager;
+    public LevelManager levelManager;
+    
     [Header("Particle Settings")]
     public GameObject brickParticlePrefab;
     public int minParticles = 3;
@@ -18,8 +23,22 @@ public class EffectManager : MonoBehaviour
     public float minForceZ = -2f;
     public float maxForceZ = 2f;
     public float torqueForce = 2f;
+    
+    [Header("UI Particle Settings")]
+    public float particleGroundTime = 0.5f;
+    public float uiParticleDuration = 0.8f;
+    public float uiParticleScale = 0.3f;
 
-    public void CreateParticlesForBrick(GameObject brick, GameManager.BrickColor color, Vector3 position, GameManager gameManager)
+    void Start()
+    {
+        if (gameManager == null)
+            gameManager = GetComponent<GameManager>();
+        
+        if (levelManager == null)
+            levelManager = GetComponent<LevelManager>();
+    }
+
+    public void CreateParticlesForBrick(GameObject brick, LevelManager.BrickColor color, Vector3 position)
     {
         if (brickParticlePrefab == null || brick == null) return;
 
@@ -28,11 +47,13 @@ public class EffectManager : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             Vector3 particlePos = position + Random.insideUnitSphere * 0.3f;
-            CreateParticle(particlePos, color, gameManager);
+            CreateParticle(particlePos, color);
         }
+        
+        levelManager.OnBrickDestroyed(color);
     }
 
-    private void CreateParticle(Vector3 position, GameManager.BrickColor color, GameManager gameManager)
+    private void CreateParticle(Vector3 position, LevelManager.BrickColor color)
     {
         var particle = Instantiate(brickParticlePrefab, position, Quaternion.identity);
         particle.transform.localScale = Vector3.one * 0.5f;
@@ -54,19 +75,14 @@ public class EffectManager : MonoBehaviour
         rb.AddForce(force, ForceMode.Impulse);
         rb.AddTorque(Random.insideUnitSphere * torqueForce, ForceMode.Impulse);
 
-        ApplyParticleTexture(particle, color, gameManager);
-        
-        if (gameManager != null)
-        {
-            gameManager.OnBrickDestroyed(color, position);
-        }
+        ApplyParticleTexture(particle, color);
     }
 
-    private void ApplyParticleTexture(GameObject particle, GameManager.BrickColor color, GameManager gameManager)
+    private void ApplyParticleTexture(GameObject particle, LevelManager.BrickColor color)
     {
-        if (particle == null || gameManager == null) return;
+        if (particle == null || levelManager == null) return;
 
-        var colorSettings = gameManager.availableColors.Find(c => c.colorType == color);
+        var colorSettings = levelManager.GetColorSettings(color);
         if (colorSettings == null) return;
 
         foreach (var renderer in particle.GetComponentsInChildren<Renderer>())
@@ -77,6 +93,58 @@ public class EffectManager : MonoBehaviour
             mat.mainTextureScale = colorSettings.tiling;
             mat.mainTextureOffset = colorSettings.offset;
             renderer.material = mat;
+        }
+    }
+    
+    public IEnumerator SendParticleToUI(LevelManager.BrickColor color, Vector3 worldPosition, GameObject uiElement)
+    {
+        if (uiElement == null) yield break;
+        
+        GameObject particle = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        particle.name = "UIParticle";
+        particle.transform.localScale = Vector3.one * uiParticleScale;
+        particle.transform.position = worldPosition;
+        
+        levelManager.ApplyBrickTexture(particle, color);
+        
+        Rigidbody rb = particle.AddComponent<Rigidbody>();
+        rb.mass = 0.1f;
+        rb.drag = 0.5f;
+        
+        Vector3 randomDir = new Vector3(Random.Range(-1f, 1f), Random.Range(1f, 2f), Random.Range(-1f, 1f));
+        rb.AddForce(randomDir * 3f, ForceMode.Impulse);
+        rb.AddTorque(Random.insideUnitSphere * 2f, ForceMode.Impulse);
+        
+        yield return new WaitForSeconds(particleGroundTime);
+        
+        rb.useGravity = false;
+        rb.velocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        
+        Camera cam = Camera.main;
+        if (cam == null) yield break;
+        
+        float elapsed = 0f;
+        Vector3 startPos = particle.transform.position;
+        
+        while (elapsed < uiParticleDuration && particle != null)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / uiParticleDuration;
+            t = t * t * (3f - 2f * t);
+            
+            Vector3 screenTargetPos = cam.WorldToScreenPoint(uiElement.transform.position);
+            Vector3 worldTargetPos = cam.ScreenToWorldPoint(new Vector3(screenTargetPos.x, screenTargetPos.y, cam.WorldToScreenPoint(startPos).z));
+            
+            particle.transform.position = Vector3.Lerp(startPos, worldTargetPos, t);
+            particle.transform.Rotate(Vector3.up * Time.deltaTime * 720f);
+            
+            yield return null;
+        }
+        
+        if (particle != null)
+        {
+            Destroy(particle);
         }
     }
 }

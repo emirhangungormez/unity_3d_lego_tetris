@@ -462,6 +462,37 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 242874156}
   m_CullTransparentMesh: 1
+--- !u!1 &305514712
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 305514713}
+  m_Layer: 0
+  m_Name: Right
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &305514713
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 305514712}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 665, y: -242, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 784348959}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &308457779
 GameObject:
   m_ObjectHideFlags: 0
@@ -495,6 +526,7 @@ RectTransform:
   m_Children:
   - {fileID: 592210501}
   - {fileID: 1621323388}
+  - {fileID: 1004358308}
   m_Father: {fileID: 1247669551}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0.5}
@@ -608,7 +640,7 @@ GameObject:
   - component: {fileID: 315273754}
   - component: {fileID: 315273753}
   m_Layer: 5
-  m_Name: ScoreText
+  m_Name: GoldText
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -708,6 +740,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   gridManager: {fileID: 1889893170}
   effectManager: {fileID: 1328891073}
+  levelManager: {fileID: 372562434}
   brickPrefabs:
   - {fileID: 5962922540469551611, guid: b8d0739f6dcd73a4ba78e27fe6c84c5e, type: 3}
   - {fileID: 5962922540469551611, guid: c50fe5c758602fc4994c1b64f5ed69f0, type: 3}
@@ -718,70 +751,95 @@ MonoBehaviour:
   - {fileID: 5962922540469551611, guid: 4673fc43a889b7a45ae9c63ec00307b1, type: 3}
   - {fileID: 5962922540469551611, guid: b6095ce207aff5e49adfdbf832216999, type: 3}
   - {fileID: 5962922540469551611, guid: 27132170324f9824487321305109dfe8, type: 3}
-  levelArea: {fileID: 1887562893}
-  numberSprites:
-  - {fileID: 21300000, guid: e3c90df4ad0277f458a7951034adadcf, type: 3}
-  - {fileID: 21300000, guid: 95da4282b776bb04cb50022cf85c661e, type: 3}
-  - {fileID: 21300000, guid: 21d615f6831dc7b4297487568506b39e, type: 3}
-  - {fileID: 21300000, guid: 942d1664b825cd94a9dd7d888881533f, type: 3}
-  - {fileID: 21300000, guid: 1a1a5fabcc3cd6b49b4036570958d440, type: 3}
-  - {fileID: 21300000, guid: e8df8899a0fff3548a13e7671608b64b, type: 3}
-  - {fileID: 21300000, guid: 58b0bd70a0f54e84894790d48299be62, type: 3}
-  - {fileID: 21300000, guid: f0641f2b8ac45bd44aa13c2020d01238, type: 3}
-  - {fileID: 21300000, guid: b4a84b82759580e45b72871422a78ed1, type: 3}
-  - {fileID: 21300000, guid: 2c4ed03c401bb0e43925548e2bec2a83, type: 3}
-  numberSpacing: 50
-  brickCountUIPrefab: {fileID: 308457779}
-  brickCountUISpacing: 100
-  levels:
-  - levelNumber: 1
-    difficulty: 0
-    gridSize: {x: 4, y: 4}
-    brickColorCounts:
-    - color: 0
-      count: 15
-    - color: 1
-      count: 15
-    targetScore: 100
-    levelTime: 120
-    maxLayers: 10
-    allowedBrickNames:
-    - 2x2
-  currentLevelIndex: 0
+  uiScaleDuration: 0.3
+  uiScaleAmount: 1.2
   ui:
-    scoreText: {fileID: 0}
+    goldText: {fileID: 315273753}
     timerText: {fileID: 1084734044}
     winPanel: {fileID: 1262833108}
     losePanel: {fileID: 242874156}
     loseReasonText: {fileID: 0}
     pauseButton: {fileID: 1968676461}
     pauseText: {fileID: 590522228}
-  difficultySprites:
-    easySprite: {fileID: 21300000, guid: ac81098f3dec9024f81a411e06fd34cb, type: 3}
-    mediumSprite: {fileID: 21300000, guid: 73012afe3603fec438a38b1519c70f6a, type: 3}
-    hardSprite: {fileID: 21300000, guid: d789b9344ec62d9489d251b655303855, type: 3}
   scoreSettings:
-    scorePerBrick: 0
-    scorePerLayer: 100
+    goldPerBrick: 10
+    goldPerLayer: 100
     comboMultiplier: 2
-  settings:
-    initialFallSpeed: 2.5
-    maxFallSpeed: 4
-    accelerationRate: 0.7
-    decelerationDistance: 3
-    snapSpeed: 1.1
-    settleOvershoot: 0.1
-    settleDuration: 0.3
-    autoFallDelay: 0.2
-    movementLockDistance: 0.1
-    wobbleAmount: 4
-    wobbleFrequency: 2
-    wobbleDecay: 2
-    silhouetteColor: {r: 1, g: 1, b: 1, a: 0.29411766}
-    silhouetteMaterial: {fileID: 2100000, guid: 8049cf3f1f8fe7a46a76f957588239e9, type: 2}
+  pauseSettings:
     pauseSprite: {fileID: 21300000, guid: a070613edf8a34140ad85a06b46329dc, type: 3}
     continueSprite: {fileID: 21300000, guid: 8cb7c0e45d21d1f4abbcde39778fd5fa, type: 3}
     maxPauseChances: 3
+  layerClearDelay: 0.3
+  brickFallDuration: 0.6
+  autoFallDelay: 0.3
+  landedBricks: []
+--- !u!4 &318091550
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 318091548}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &372562433
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 372562435}
+  - component: {fileID: 372562434}
+  m_Layer: 0
+  m_Name: LevelManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &372562434
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 372562433}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1a8f900698d015f49b474b9899cf94d1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gameManager: {fileID: 318091549}
+  levels:
+  - levelNumber: 0
+    difficulty: 0
+    gridSize: {x: 4, y: 4}
+    brickColorCounts:
+    - color: 0
+      count: 4
+    - color: 1
+      count: 4
+    levelTime: 120
+    maxLayers: 10
+    allowedBrickNames:
+    - 2x2
+  currentLevelIndex: 0
+  levelArea: {fileID: 1887562893}
+  numberSprites: []
+  numberSpacing: 50
+  doubleDigitOffset: 50
+  brickCountUIPrefab: {fileID: 308457779}
+  brickCountUISpacing: 80
+  timerPulseDuration: 1
+  timerPulseScale: 1.05
   availableColors:
   - colorType: 0
     tiling: {x: 1, y: -0.5}
@@ -819,17 +877,16 @@ MonoBehaviour:
     tiling: {x: 0, y: -0.5}
     offset: {x: 0, y: 0}
     brickCountBackground: {fileID: 21300000, guid: ae7b58dd91f46604eb238da2c213309b, type: 3}
-  landedBricks: []
---- !u!4 &318091550
+--- !u!4 &372562435
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 318091548}
+  m_GameObject: {fileID: 372562433}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 522.6197, y: 934.16394, z: -0.11884423}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1413,6 +1470,72 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 50, y: -30, z: 0}
+--- !u!1 &784348958
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 784348959}
+  - component: {fileID: 784348960}
+  m_Layer: 0
+  m_Name: ConfettiManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &784348959
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 784348958}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 15.498779, y: 239.55286, z: -0.094563164}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 2068257716}
+  - {fileID: 305514713}
+  m_Father: {fileID: 1247669551}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &784348960
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 784348958}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2dbe1540637b1de4e956e2fe3930f219, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  levelManager: {fileID: 0}
+  confettiBrickPrefabs:
+  - {fileID: 5962922540469551611, guid: b8d0739f6dcd73a4ba78e27fe6c84c5e, type: 3}
+  - {fileID: 5962922540469551611, guid: c50fe5c758602fc4994c1b64f5ed69f0, type: 3}
+  - {fileID: 5962922540469551611, guid: 2816d6e4617efae47846b3069beae011, type: 3}
+  - {fileID: 5962922540469551611, guid: 084ae0be29fe6244285bab0429612144, type: 3}
+  - {fileID: 5962922540469551611, guid: 4673fc43a889b7a45ae9c63ec00307b1, type: 3}
+  confettiPerSide: 25
+  confettiScale: 0.25
+  spawnHeight: 5
+  spawnRatePerSecond: 20
+  confettiLifetime: 5
+  explosionForce: 10
+  explosionUpwardForce: 8
+  torqueForce: 5
+  confettiMass: 0.1
+  confettiDrag: 0.3
+  confettiAngularDrag: 0.2
+  screenEdgeOffset: 0.05
+  screenHeightPosition: 0.3
 --- !u!1 &913577659
 GameObject:
   m_ObjectHideFlags: 0
@@ -1786,6 +1909,81 @@ MonoBehaviour:
   imageScale: {x: 0.3, y: 0.3, z: 0.3}
   imageRotation: {x: 0, y: 0, z: 90}
   maintainAspectRatio: 1
+--- !u!1 &1004358307
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1004358308}
+  - component: {fileID: 1004358310}
+  - component: {fileID: 1004358309}
+  m_Layer: 5
+  m_Name: Tick
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!224 &1004358308
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1004358307}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 0.24, y: 0.24, z: 0.24}
+  m_ConstrainProportionsScale: 1
+  m_Children: []
+  m_Father: {fileID: 308457780}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: 17.45, y: -1.7}
+  m_SizeDelta: {x: 100, y: 100}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &1004358309
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1004358307}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Material: {fileID: 0}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_RaycastTarget: 1
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Sprite: {fileID: 21300000, guid: ce0083ad329889b42a1610aebcfda433, type: 3}
+  m_Type: 0
+  m_PreserveAspect: 1
+  m_FillCenter: 1
+  m_FillMethod: 4
+  m_FillAmount: 1
+  m_FillClockwise: 1
+  m_FillOrigin: 0
+  m_UseSpriteMesh: 0
+  m_PixelsPerUnitMultiplier: 1
+--- !u!222 &1004358310
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1004358307}
+  m_CullTransparentMesh: 1
 --- !u!1 &1032101879
 GameObject:
   m_ObjectHideFlags: 0
@@ -2240,6 +2438,7 @@ RectTransform:
   - {fileID: 1887562894}
   - {fileID: 1262833109}
   - {fileID: 242874157}
+  - {fileID: 784348959}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
@@ -2258,6 +2457,7 @@ GameObject:
   - component: {fileID: 1262833109}
   - component: {fileID: 1262833111}
   - component: {fileID: 1262833110}
+  - component: {fileID: 1262833112}
   m_Layer: 6
   m_Name: WinPanel
   m_TagString: Untagged
@@ -2323,6 +2523,33 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1262833108}
   m_CullTransparentMesh: 1
+--- !u!114 &1262833112
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1262833108}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2dbe1540637b1de4e956e2fe3930f219, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  levelManager: {fileID: 0}
+  confettiBrickPrefabs: []
+  confettiPerSide: 25
+  confettiScale: 0.25
+  spawnHeight: 5
+  spawnRatePerSecond: 20
+  confettiLifetime: 5
+  explosionForce: 12
+  explosionUpwardForce: 8
+  torqueForce: 10
+  confettiMass: 0.1
+  confettiDrag: 0.3
+  confettiAngularDrag: 0.2
+  screenEdgeOffset: 0.05
+  screenHeightPosition: 0.3
 --- !u!1 &1322960746
 GameObject:
   m_ObjectHideFlags: 0
@@ -2484,14 +2711,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b9c22884244b4b842bb40443c94869d1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  gameManager: {fileID: 318091549}
-  gridManager: {fileID: 1889893170}
-  layerClearDelay: 0.3
-  brickFallDuration: 0.6
+  gameManager: {fileID: 0}
+  levelManager: {fileID: 372562434}
   brickParticlePrefab: {fileID: 5962922540469551611, guid: 6dc53a7e2fa3796429dc3c2883f30207, type: 3}
   minParticles: 1
   maxParticles: 5
-  particleLifetime: 4
+  particleMass: 0.5
+  particleDrag: 0.5
+  minForceX: -2
+  maxForceX: 2
+  minForceY: 1
+  maxForceY: 3
+  minForceZ: -2
+  maxForceZ: 2
+  torqueForce: 2
+  particleGroundTime: 0.5
+  uiParticleDuration: 0.8
+  uiParticleScale: 0.3
 --- !u!4 &1328891074
 Transform:
   m_ObjectHideFlags: 0
@@ -3070,7 +3306,7 @@ GameObject:
   - component: {fileID: 1815511744}
   - component: {fileID: 1815511743}
   m_Layer: 5
-  m_Name: Score
+  m_Name: Gold
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -3319,6 +3555,20 @@ MonoBehaviour:
   - {fileID: 3462715394215204547, guid: ebd97ceb0c7122f408e1077e9a8ad56e, type: 3}
   isColorPlate: 0
   plateYPosition: -0.4
+  initialFallSpeed: 3
+  maxFallSpeed: 5
+  accelerationRate: 0.5
+  decelerationDistance: 3
+  snapSpeed: 0.4
+  settleOvershoot: 0.1
+  settleDuration: 0.4
+  movementLockDistance: 0.3
+  wobbleAmount: 3
+  wobbleFrequency: 2
+  wobbleDecay: 2
+  silhouetteColor: {r: 1, g: 1, b: 1, a: 0.5}
+  silhouetteMaterial: {fileID: 0}
+  silhouetteFadeDistance: 5
 --- !u!1 &1902450106
 GameObject:
   m_ObjectHideFlags: 0
@@ -3726,6 +3976,37 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &2068257715
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2068257716}
+  m_Layer: 0
+  m_Name: Left
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2068257716
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2068257715}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -688, y: -242, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 784348959}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -3738,3 +4019,4 @@ SceneRoots:
   - {fileID: 1328891074}
   - {fileID: 2039306739}
   - {fileID: 1757287309}
+  - {fileID: 372562435}

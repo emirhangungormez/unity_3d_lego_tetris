@@ -47,6 +47,8 @@ public class CameraController : MonoBehaviour
         currentY = targetY = defaultEulerAngles.x;
         
         FindAndSetupGridManager();
+        // Ensure target exists and is positioned based on current grid before updating camera
+        UpdateTargetPosition();
         CreateOverlayImage();
         UpdateCameraPosition();
         ForceUpdateImageTransform();
