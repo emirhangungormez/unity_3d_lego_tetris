@@ -1,148 +1,68 @@
 using UnityEngine;
 using System.Collections.Generic;
-using System.Collections;
 
 public class EffectManager : MonoBehaviour
 {
-    [Header("References")]
-    public GameManager gameManager;
-    public GridManager gridManager;
-    
-    [Header("Timing Settings")]
-    public float layerClearDelay = 0.3f;
-    public float brickFallDuration = 0.6f;
-    
     [Header("Particle Settings")]
     public GameObject brickParticlePrefab;
     public int minParticles = 3;
     public int maxParticles = 8;
-    public float particleLifetime = 2f;
+    
+    [Header("Particle Physics")]
+    public float particleMass = 0.5f;
+    public float particleDrag = 0.5f;
+    public float minForceX = -2f;
+    public float maxForceX = 2f;
+    public float minForceY = 1f;
+    public float maxForceY = 3f;
+    public float minForceZ = -2f;
+    public float maxForceZ = 2f;
+    public float torqueForce = 2f;
 
-    void Start()
-    {
-        gameManager ??= FindObjectOfType<GameManager>();
-        gridManager ??= FindObjectOfType<GridManager>();
-    }
-
-    public void ClearLayerWithEffects(int layer) => StartCoroutine(ClearLayerRoutine(layer));
-
-    private IEnumerator ClearLayerRoutine(int layer)
-    {
-        yield return new WaitForSeconds(layerClearDelay);
-
-        var bricksToRemove = gridManager.GetBricksInLayer(layer);
-        var bricksToMove = new List<GameObject>();
-        
-        foreach (var brick in gameManager.landedBricks)
-        {
-            if (brick == null) continue;
-            
-            var gridPos = gameManager.GetBrickGridPosition(brick);
-            int brickLayer = gridManager.GetLayerAtPosition(gridPos, brick);
-            
-            if (brickLayer > layer)
-                bricksToMove.Add(brick);
-        }
-
-        if (AudioManager.Instance != null)
-            AudioManager.Instance.PlayLayerCompleteExplosion();
-
-        foreach (var brick in bricksToRemove)
-        {
-            if (brick != null)
-            {
-                CreateParticlesForBrick(brick);
-                gameManager.landedBricks.Remove(brick);
-                Destroy(brick);
-            }
-        }
-
-        gridManager.RemoveLayer(layer);
-
-        foreach (var brick in bricksToMove)
-        {
-            if (brick != null)
-                StartCoroutine(MoveBrickDown(brick));
-        }
-        
-        if (bricksToMove.Count > 0)
-        {
-            yield return new WaitForSeconds(brickFallDuration);
-            if (AudioManager.Instance != null)
-                AudioManager.Instance.PlayAllBricksSettled();
-        }
-    }
-
-    private IEnumerator MoveBrickDown(GameObject brick)
-    {
-        if (brick == null) yield break;
-
-        var startPos = brick.transform.position;
-        float targetY = startPos.y - gridManager.layerHeight;
-        var endPos = new Vector3(startPos.x, targetY, startPos.z);
-
-        float elapsed = 0f;
-        while (elapsed < brickFallDuration && brick != null)
-        {
-            elapsed += Time.deltaTime;
-            float t = elapsed / brickFallDuration;
-            brick.transform.position = Vector3.Lerp(startPos, endPos, t);
-            yield return null;
-        }
-
-        if (brick != null)
-            brick.transform.position = endPos;
-    }
-
-    private void CreateParticlesForBrick(GameObject brick)
+    public void CreateParticlesForBrick(GameObject brick, GameManager.BrickColor color, Vector3 position, GameManager gameManager)
     {
         if (brickParticlePrefab == null || brick == null) return;
 
-        var color = GetBrickColor(brick);
         int count = Random.Range(minParticles, maxParticles + 1);
 
         for (int i = 0; i < count; i++)
-            CreateParticle(brick.transform.position, color);
+        {
+            Vector3 particlePos = position + Random.insideUnitSphere * 0.3f;
+            CreateParticle(particlePos, color, gameManager);
+        }
     }
 
-    private void CreateParticle(Vector3 position, GameManager.BrickColor color)
+    private void CreateParticle(Vector3 position, GameManager.BrickColor color, GameManager gameManager)
     {
-        var particle = Instantiate(brickParticlePrefab, position + Random.insideUnitSphere * 0.3f, Quaternion.identity);
+        var particle = Instantiate(brickParticlePrefab, position, Quaternion.identity);
         particle.transform.localScale = Vector3.one * 0.5f;
 
-        var rb = particle.GetComponent<Rigidbody>() ?? particle.AddComponent<Rigidbody>();
-        rb.mass = 0.5f;
-        rb.drag = 0.5f;
-        rb.AddForce(new Vector3(Random.Range(-2f, 2f), Random.Range(1f, 3f), Random.Range(-2f, 2f)), ForceMode.Impulse);
-        rb.AddTorque(Random.insideUnitSphere * 2f, ForceMode.Impulse);
+        var rb = particle.GetComponent<Rigidbody>();
+        if (rb == null)
+        {
+            rb = particle.AddComponent<Rigidbody>();
+        }
+        
+        rb.mass = particleMass;
+        rb.drag = particleDrag;
+        
+        Vector3 force = new Vector3(
+            Random.Range(minForceX, maxForceX),
+            Random.Range(minForceY, maxForceY),
+            Random.Range(minForceZ, maxForceZ)
+        );
+        rb.AddForce(force, ForceMode.Impulse);
+        rb.AddTorque(Random.insideUnitSphere * torqueForce, ForceMode.Impulse);
 
-        ApplyParticleTexture(particle, color);
-        Destroy(particle, particleLifetime);
+        ApplyParticleTexture(particle, color, gameManager);
+        
+        if (gameManager != null)
+        {
+            gameManager.OnBrickDestroyed(color, position);
+        }
     }
 
-    private GameManager.BrickColor GetBrickColor(GameObject brick)
-    {
-        if (brick == null) return GameManager.BrickColor.Orange;
-
-        var renderer = brick.GetComponentInChildren<Renderer>();
-        if (renderer?.material == null) return GameManager.BrickColor.Orange;
-
-        var name = renderer.material.name.ToLower();
-
-        if (name.Contains("orange")) return GameManager.BrickColor.Orange;
-        if (name.Contains("blue")) return GameManager.BrickColor.Blue;
-        if (name.Contains("pink")) return GameManager.BrickColor.Pink;
-        if (name.Contains("purple")) return GameManager.BrickColor.Purple;
-        if (name.Contains("green")) return GameManager.BrickColor.Green;
-        if (name.Contains("white")) return GameManager.BrickColor.White;
-        if (name.Contains("gray")) return GameManager.BrickColor.Gray;
-        if (name.Contains("brown")) return GameManager.BrickColor.Brown;
-        if (name.Contains("black")) return GameManager.BrickColor.Black;
-
-        return GameManager.BrickColor.Orange;
-    }
-
-    private void ApplyParticleTexture(GameObject particle, GameManager.BrickColor color)
+    private void ApplyParticleTexture(GameObject particle, GameManager.BrickColor color, GameManager gameManager)
     {
         if (particle == null || gameManager == null) return;
 

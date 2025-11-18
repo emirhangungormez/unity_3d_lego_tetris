@@ -18,6 +18,7 @@ public class GridManager : MonoBehaviour
     private GameManager.BrickColor[,] gridPlateColors;
     private GameObject[,,] gridCells;
     private GameManager.BrickColor[,,] gridCellColors;
+    private Dictionary<GameObject, Vector3Int> brickPositions = new Dictionary<GameObject, Vector3Int>();
     private int currentHighestLayer = 0;
 
     public int GridWidth => (int)gridSize.x;
@@ -35,6 +36,7 @@ public class GridManager : MonoBehaviour
         gridCells = new GameObject[GridWidth, GridHeight, 100];
         gridCellColors = new GameManager.BrickColor[GridWidth, GridHeight, 100];
         gridPlateColors = new GameManager.BrickColor[GridWidth, GridHeight];
+        brickPositions.Clear();
         currentHighestLayer = 0;
         
         ClearGridPlates();
@@ -147,6 +149,23 @@ public class GridManager : MonoBehaviour
         
         return (maxLayer + 1) * layerHeight;
     }
+    
+    public int GetMaxLayerAtPosition(Vector2Int gridPos, Vector2Int size)
+    {
+        int maxLayer = -1;
+        
+        for (int x = gridPos.x; x < gridPos.x + size.x && x < GridWidth; x++)
+        {
+            for (int y = gridPos.y; y < gridPos.y + size.y && y < GridHeight; y++)
+            {
+                int topLayer = GetTopLayerAt(x, y);
+                if (topLayer > maxLayer)
+                    maxLayer = topLayer;
+            }
+        }
+        
+        return maxLayer + 1;
+    }
 
     public void PlaceBrick(Vector2Int gridPos, Vector2Int size, GameObject brick, GameManager.BrickColor color)
     {
@@ -173,32 +192,129 @@ public class GridManager : MonoBehaviour
             }
         }
         
+        brickPositions[brick] = new Vector3Int(gridPos.x, gridPos.y, targetLayer);
         currentHighestLayer = Mathf.Max(currentHighestLayer, targetLayer);
     }
-
-    public GameManager.BrickColor? CheckCompletedLayerWithColor(int layer)
+    
+    public List<Vector2Int> FindMatchingLineInLayer(int layer)
     {
-        if (!IsLayerComplete(layer)) return null;
-        
-        var firstColor = GetColorAt(0, 0, layer);
-        for (int x = 0; x < GridWidth; x++)
         for (int y = 0; y < GridHeight; y++)
-            if (GetColorAt(x, y, layer) != firstColor)
-                return null;
+        {
+            GameManager.BrickColor? firstColor = null;
+            List<Vector2Int> rowPositions = new List<Vector2Int>();
+            bool isComplete = true;
+            
+            for (int x = 0; x < GridWidth; x++)
+            {
+                if (gridCells[x, y, layer] == null)
+                {
+                    isComplete = false;
+                    break;
+                }
+                
+                var cellColor = gridCellColors[x, y, layer];
+                
+                if (firstColor == null)
+                {
+                    firstColor = cellColor;
+                }
+                else if (cellColor != firstColor)
+                {
+                    isComplete = false;
+                    break;
+                }
+                
+                rowPositions.Add(new Vector2Int(x, y));
+            }
+            
+            if (isComplete && rowPositions.Count == GridWidth)
+            {
+                return rowPositions;
+            }
+        }
         
-        return firstColor;
+        for (int x = 0; x < GridWidth; x++)
+        {
+            GameManager.BrickColor? firstColor = null;
+            List<Vector2Int> colPositions = new List<Vector2Int>();
+            bool isComplete = true;
+            
+            for (int y = 0; y < GridHeight; y++)
+            {
+                if (gridCells[x, y, layer] == null)
+                {
+                    isComplete = false;
+                    break;
+                }
+                
+                var cellColor = gridCellColors[x, y, layer];
+                
+                if (firstColor == null)
+                {
+                    firstColor = cellColor;
+                }
+                else if (cellColor != firstColor)
+                {
+                    isComplete = false;
+                    break;
+                }
+                
+                colPositions.Add(new Vector2Int(x, y));
+            }
+            
+            if (isComplete && colPositions.Count == GridHeight)
+            {
+                return colPositions;
+            }
+        }
+        
+        return new List<Vector2Int>();
     }
-
-    public void RemoveLayer(int layer)
+    
+    public GameObject GetBrickAt(int x, int y, int layer)
     {
+        if (x >= 0 && x < GridWidth && y >= 0 && y < GridHeight && layer >= 0 && layer < 100)
+        {
+            return gridCells[x, y, layer];
+        }
+        return null;
+    }
+    
+    public GameManager.BrickColor GetBrickColorAt(int x, int y, int layer)
+    {
+        if (x >= 0 && x < GridWidth && y >= 0 && y < GridHeight && layer >= 0 && layer < 100)
+        {
+            return gridCellColors[x, y, layer];
+        }
+        return GameManager.BrickColor.Orange;
+    }
+    
+    public void RemoveBrickFromGrid(GameObject brick)
+    {
+        if (!brickPositions.ContainsKey(brick)) return;
+        
         for (int x = 0; x < GridWidth; x++)
         {
             for (int y = 0; y < GridHeight; y++)
             {
-                gridCells[x, y, layer] = null;
-                gridCellColors[x, y, layer] = default;
+                for (int layer = 0; layer <= currentHighestLayer; layer++)
+                {
+                    if (gridCells[x, y, layer] == brick)
+                    {
+                        gridCells[x, y, layer] = null;
+                        gridCellColors[x, y, layer] = default;
+                    }
+                }
             }
         }
+        
+        brickPositions.Remove(brick);
+        RecalculateHighestLayer();
+    }
+    
+    public List<GameObject> GetBricksAboveLayer(int layer)
+    {
+        HashSet<GameObject> bricks = new HashSet<GameObject>();
         
         for (int l = layer + 1; l <= currentHighestLayer; l++)
         {
@@ -206,15 +322,120 @@ public class GridManager : MonoBehaviour
             {
                 for (int y = 0; y < GridHeight; y++)
                 {
-                    gridCells[x, y, l - 1] = gridCells[x, y, l];
-                    gridCellColors[x, y, l - 1] = gridCellColors[x, y, l];
-                    gridCells[x, y, l] = null;
-                    gridCellColors[x, y, l] = default;
+                    var brick = gridCells[x, y, l];
+                    if (brick != null)
+                    {
+                        bricks.Add(brick);
+                    }
                 }
             }
         }
         
-        currentHighestLayer = Mathf.Max(0, currentHighestLayer - 1);
+        return new List<GameObject>(bricks);
+    }
+    
+    public float GetRequiredHeightForBrick(GameObject brick)
+    {
+        if (!brickPositions.ContainsKey(brick)) return 0f;
+        
+        Vector3Int pos = brickPositions[brick];
+        Vector2Int brickSize = GetBrickSize(brick);
+        
+        int maxLayer = -1;
+        for (int x = pos.x; x < pos.x + brickSize.x && x < GridWidth; x++)
+        {
+            for (int y = pos.y; y < pos.y + brickSize.y && y < GridHeight; y++)
+            {
+                int topLayer = GetTopLayerAt(x, y);
+                if (topLayer > maxLayer)
+                    maxLayer = topLayer;
+            }
+        }
+        
+        return (maxLayer + 1) * layerHeight;
+    }
+    
+    public void UpdateBrickPosition(GameObject brick)
+    {
+        if (!brickPositions.ContainsKey(brick)) return;
+        
+        Vector3Int oldPos = brickPositions[brick];
+        Vector2Int brickSize = GetBrickSize(brick);
+        
+        for (int x = oldPos.x; x < oldPos.x + brickSize.x && x < GridWidth; x++)
+        {
+            for (int y = oldPos.y; y < oldPos.y + brickSize.y && y < GridHeight; y++)
+            {
+                if (gridCells[x, y, oldPos.z] == brick)
+                {
+                    gridCells[x, y, oldPos.z] = null;
+                    gridCellColors[x, y, oldPos.z] = default;
+                }
+            }
+        }
+        
+        int newLayer = -1;
+        for (int x = oldPos.x; x < oldPos.x + brickSize.x && x < GridWidth; x++)
+        {
+            for (int y = oldPos.y; y < oldPos.y + brickSize.y && y < GridHeight; y++)
+            {
+                int topLayer = GetTopLayerAt(x, y);
+                if (topLayer > newLayer)
+                    newLayer = topLayer;
+            }
+        }
+        newLayer++;
+        
+        var color = GetBrickColor(brick);
+        for (int x = oldPos.x; x < oldPos.x + brickSize.x && x < GridWidth; x++)
+        {
+            for (int y = oldPos.y; y < oldPos.y + brickSize.y && y < GridHeight; y++)
+            {
+                gridCells[x, y, newLayer] = brick;
+                gridCellColors[x, y, newLayer] = color;
+            }
+        }
+        
+        brickPositions[brick] = new Vector3Int(oldPos.x, oldPos.y, newLayer);
+        RecalculateHighestLayer();
+    }
+    
+    Vector2Int GetBrickSize(GameObject brick)
+    {
+        var parts = brick.name.Split('_');
+        if (parts.Length > 0)
+        {
+            var sizeParts = parts[0].Replace("Brick", "").Split('x');
+            if (sizeParts.Length == 2)
+            {
+                int w, h;
+                if (int.TryParse(sizeParts[0], out w) && int.TryParse(sizeParts[1], out h))
+                {
+                    return new Vector2Int(w, h);
+                }
+            }
+        }
+        
+        return new Vector2Int(1, 1);
+    }
+    
+    void RecalculateHighestLayer()
+    {
+        currentHighestLayer = 0;
+        for (int layer = 99; layer >= 0; layer--)
+        {
+            for (int x = 0; x < GridWidth; x++)
+            {
+                for (int y = 0; y < GridHeight; y++)
+                {
+                    if (gridCells[x, y, layer] != null)
+                    {
+                        currentHighestLayer = layer;
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     private GameObject GetPlateBrick(int w, int h) => 
@@ -273,17 +494,6 @@ public class GridManager : MonoBehaviour
         return bricks;
     }
 
-    private bool IsLayerComplete(int layer)
-    {
-        for (int x = 0; x < GridWidth; x++)
-        for (int y = 0; y < GridHeight; y++)
-            if (gridCells[x, y, layer] == null)
-                return false;
-        return true;
-    }
-
-    private GameManager.BrickColor GetColorAt(int x, int y, int layer) => gridCellColors[x, y, layer];
-
     private void ClearGridPlates()
     {
         gridPlateBricks.ForEach(Destroy);
@@ -298,6 +508,46 @@ public class GridManager : MonoBehaviour
             if (gridCells[gridPos.x, gridPos.y, layer] == brick)
                 return layer;
         return -1;
+    }
+    
+    public int GetLayerAtBrickPosition(GameObject brick, Vector2Int gridPos)
+    {
+        if (brickPositions.ContainsKey(brick))
+        {
+            return brickPositions[brick].z;
+        }
+        
+        for (int layer = 0; layer <= currentHighestLayer; layer++)
+        {
+            if (gridCells[gridPos.x, gridPos.y, layer] == brick)
+                return layer;
+        }
+        return -1;
+    }
+    
+    public Vector2Int GetBrickGridPosition(GameObject brick)
+    {
+        if (brickPositions.ContainsKey(brick))
+        {
+            var pos = brickPositions[brick];
+            return new Vector2Int(pos.x, pos.y);
+        }
+        
+        for (int layer = 0; layer <= currentHighestLayer; layer++)
+        {
+            for (int x = 0; x < GridWidth; x++)
+            {
+                for (int y = 0; y < GridHeight; y++)
+                {
+                    if (gridCells[x, y, layer] == brick)
+                    {
+                        return new Vector2Int(x, y);
+                    }
+                }
+            }
+        }
+        
+        return Vector2Int.zero;
     }
     
     public GameManager.BrickColor GetBrickColor(GameObject brick)

@@ -2,9 +2,17 @@ using UnityEngine;
 using System.Collections.Generic;
 using UnityEngine.UI;
 using System.Collections;
+using System.Linq;
 
 public class GameManager : MonoBehaviour
 {
+    [System.Serializable]
+    public class BrickColorCount
+    {
+        public BrickColor color;
+        public int count;
+    }
+    
     [System.Serializable]
     public class LevelData
     {
@@ -17,31 +25,24 @@ public class GameManager : MonoBehaviour
         public Vector2Int gridSize = new Vector2Int(8, 8);
         
         [Header("Level Requirements")]
-        public int totalBricks = 50;
-        public int targetScore = 1000;
+        public List<BrickColorCount> brickColorCounts = new List<BrickColorCount>();
         public float levelTime = 180f;
         public int maxLayers = 10;
         
         [Header("Brick Configuration")]
-        public List<BrickColor> allowedColors = new List<BrickColor>();
         public List<string> allowedBrickNames = new List<string>();
     }
     
     [System.Serializable]
     public class UIReferences
     {
-        [Header("Level UI")]
-        public Text levelNameText;
-        public Image levelDifficultyImage;
-        
         [Header("Game Info UI")]
-        public Text bricksRemainingText;
-        public Text scoreText;
+        public Text goldText;
         public Text timerText;
         
         [Header("Panels")]
         public GameObject winPanel;
-        public GameObject losePanel;
+        public GameObject losePanel; 
         public Text loseReasonText;
         
         [Header("Pause UI")]
@@ -50,18 +51,10 @@ public class GameManager : MonoBehaviour
     }
     
     [System.Serializable]
-    public class DifficultySprites
-    {
-        public Sprite easySprite;
-        public Sprite mediumSprite;
-        public Sprite hardSprite;
-    }
-    
-    [System.Serializable]
     public class ScoreSettings
     {
-        public int scorePerBrick = 10;
-        public int scorePerLayer = 100;
+        public int goldPerBrick = 10;
+        public int goldPerLayer = 100;
         public int comboMultiplier = 2;
     }
     
@@ -70,15 +63,28 @@ public class GameManager : MonoBehaviour
     public EffectManager effectManager;
     public List<GameObject> brickPrefabs;
     
+    [Header("Level Number Display")]
+    public GameObject levelArea;
+    public Sprite[] numberSprites;
+    public float numberSpacing = 50f;
+    public float doubleDigitOffset = 50f;
+    
+    [Header("Brick Count UI")]
+    public GameObject brickCountUIPrefab;
+    public float brickCountUISpacing = 80f;
+    
     [Header("Level Configuration")]
     public List<LevelData> levels = new List<LevelData>();
     public int currentLevelIndex = 0;
     
+    [Header("UI Animation Settings")]
+    public float uiScaleDuration = 0.3f;
+    public float uiScaleAmount = 1.2f;
+    public float timerPulseDuration = 1f;
+    public float timerPulseScale = 1.05f;
+    
     [Header("UI References")]
     public UIReferences ui = new UIReferences();
-    
-    [Header("Difficulty Sprites")]
-    public DifficultySprites difficultySprites = new DifficultySprites();
     
     [Header("Score Settings")]
     public ScoreSettings scoreSettings = new ScoreSettings();
@@ -105,6 +111,7 @@ public class GameManager : MonoBehaviour
         [Header("Silhouette Settings")]
         public Color silhouetteColor = new Color(1f, 1f, 1f, 0.5f);
         public Material silhouetteMaterial;
+        public float silhouetteFadeDistance = 5f;
         
         [Header("Pause Settings")]
         public Sprite pauseSprite;
@@ -115,6 +122,11 @@ public class GameManager : MonoBehaviour
     [Header("Game Settings")]
     public GameSettings settings = new GameSettings();
     
+    [Header("Effect Timing")]
+    public float layerClearDelay = 0.3f;
+    public float brickFallDuration = 0.6f;
+    public float particleGroundTime = 0.5f;
+    
     public enum BrickColor { Orange, Blue, Pink, Purple, Green, White, Gray, Brown, Black }
     
     [System.Serializable]
@@ -123,6 +135,7 @@ public class GameManager : MonoBehaviour
         public BrickColor colorType;
         public Vector2 tiling = Vector2.one;
         public Vector2 offset = Vector2.zero;
+        public Sprite brickCountBackground;
     }
     
     [Header("Available Colors")]
@@ -145,10 +158,15 @@ public class GameManager : MonoBehaviour
     private GameObject currentBrick, silhouetteBrick;
     private Vector2Int currentGridPosition, brickSize;
     private bool isFalling, hasLanded, isDecelerating, isSnapping, isSettling, isPaused, isGameActive;
-    private float currentFallSpeed, settleTimer, targetSettleY, overshootY, currentWobble, wobbleTimer, currentTime;
-    private Vector3 originalRotation;
+    private float currentFallSpeed, settleTimer, currentWobble, wobbleTimer, currentTime;
+    private Vector3 originalRotation, targetSettlePosition;
     private BrickColor currentBrickColor;
-    private int currentPauseChances, bricksSpawned, currentScore, comboCount;
+    private int currentPauseChances, currentGold, comboCount;
+    private int maxAllowedLayer = -1;
+    private Dictionary<BrickColor, int> targetBrickCounts = new Dictionary<BrickColor, int>();
+    private Dictionary<BrickColor, int> destroyedBrickCounts = new Dictionary<BrickColor, int>();
+    private Dictionary<BrickColor, GameObject> brickCountUIElements = new Dictionary<BrickColor, GameObject>();
+    private List<GameObject> levelNumberObjects = new List<GameObject>();
     private const float START_Y = 20f;
 
     void Start()
@@ -166,12 +184,19 @@ public class GameManager : MonoBehaviour
         
         currentLevel = levels[currentLevelIndex];
         isGameActive = true;
-        bricksSpawned = 0;
-        currentScore = 0;
+        currentGold = 0;
         comboCount = 0;
         currentTime = currentLevel.levelTime;
         currentPauseChances = settings.maxPauseChances;
         currentFallSpeed = settings.initialFallSpeed;
+        
+        targetBrickCounts.Clear();
+        destroyedBrickCounts.Clear();
+        foreach (var brickCount in currentLevel.brickColorCounts)
+        {
+            targetBrickCounts[brickCount.color] = brickCount.count;
+            destroyedBrickCounts[brickCount.color] = 0;
+        }
         
         if (ui.winPanel != null) ui.winPanel.SetActive(false);
         if (ui.losePanel != null) ui.losePanel.SetActive(false);
@@ -179,58 +204,321 @@ public class GameManager : MonoBehaviour
         gridManager.gridSize = currentLevel.gridSize;
         gridManager.InitializeGrid();
         
-        UpdateLevelUI();
+        CreateLevelNumberDisplay();
+        CreateBrickCountUI();
         UpdatePauseUI();
-        UpdateBricksUI();
-        UpdateScoreUI();
+        UpdateGoldUI();
         UpdateTimerUI();
         
         StartCoroutine(GameTimer());
+        StartCoroutine(TimerPulseEffect());
         SpawnNewBrick();
     }
     
-    void UpdateLevelUI()
+    void CreateLevelNumberDisplay()
     {
-        if (ui.levelNameText != null)
-            ui.levelNameText.text = $"Level {currentLevel.levelNumber}";
+        foreach (var obj in levelNumberObjects)
+            if (obj != null) Destroy(obj);
+        levelNumberObjects.Clear();
         
-        if (ui.levelDifficultyImage != null)
+        if (levelArea == null || numberSprites == null || numberSprites.Length < 10) return;
+        
+        Transform whichLevelTransform = levelArea.transform.Find("WhichLevel");
+        if (whichLevelTransform == null) return;
+        
+        Image whichLevelImage = whichLevelTransform.GetComponent<Image>();
+        if (whichLevelImage == null) return;
+        
+        string levelStr = currentLevel.levelNumber.ToString();
+        RectTransform levelAreaRect = levelArea.GetComponent<RectTransform>();
+        
+        if (levelStr.Length >= 2 && levelAreaRect != null)
         {
-            Sprite difficultySprite = currentLevel.difficulty switch
-            {
-                LevelData.Difficulty.Easy => difficultySprites.easySprite,
-                LevelData.Difficulty.Medium => difficultySprites.mediumSprite,
-                LevelData.Difficulty.Hard => difficultySprites.hardSprite,
-                _ => difficultySprites.easySprite
-            };
+            Vector2 currentPos = levelAreaRect.anchoredPosition;
+            levelAreaRect.anchoredPosition = new Vector2(currentPos.x + doubleDigitOffset, currentPos.y);
+        }
+        
+        if (levelStr.Length == 1)
+        {
+            int digit = int.Parse(levelStr);
+            whichLevelImage.sprite = numberSprites[digit];
+            whichLevelImage.preserveAspect = true;
+            levelNumberObjects.Add(whichLevelTransform.gameObject);
+        }
+        else
+        {
+            whichLevelTransform.gameObject.SetActive(false);
             
-            if (difficultySprite != null)
-                ui.levelDifficultyImage.sprite = difficultySprite;
+            float totalWidth = (levelStr.Length - 1) * numberSpacing;
+            float startX = -totalWidth / 2f;
+            
+            for (int i = 0; i < levelStr.Length; i++)
+            {
+                int digit = int.Parse(levelStr[i].ToString());
+                GameObject numberObj = Instantiate(whichLevelTransform.gameObject, levelArea.transform);
+                numberObj.name = $"Number_{digit}";
+                numberObj.SetActive(true);
+                
+                RectTransform rect = numberObj.GetComponent<RectTransform>();
+                if (rect != null)
+                {
+                    rect.anchoredPosition = new Vector2(
+                        whichLevelTransform.GetComponent<RectTransform>().anchoredPosition.x + startX + (i * numberSpacing),
+                        whichLevelTransform.GetComponent<RectTransform>().anchoredPosition.y
+                    );
+                }
+                
+                Image img = numberObj.GetComponent<Image>();
+                if (img != null)
+                {
+                    img.sprite = numberSprites[digit];
+                    img.preserveAspect = true;
+                }
+                
+                levelNumberObjects.Add(numberObj);
+            }
         }
     }
     
-    void UpdateBricksUI()
+    void CreateBrickCountUI()
     {
-        if (ui.bricksRemainingText != null)
-        {
-            int remaining = currentLevel.totalBricks - bricksSpawned;
-            ui.bricksRemainingText.text = remaining.ToString();
-        }
-    }
-    
-    void UpdateScoreUI()
-    {
-        if (ui.scoreText != null)
-            ui.scoreText.text = $"{currentScore} / {currentLevel.targetScore}";
-    }
-    
-    void AddScore(int points)
-    {
-        currentScore += points * (comboCount > 0 ? scoreSettings.comboMultiplier : 1);
-        UpdateScoreUI();
+        foreach (var ui in brickCountUIElements.Values)
+            if (ui != null) Destroy(ui);
+        brickCountUIElements.Clear();
         
-        if (currentScore >= currentLevel.targetScore)
+        if (brickCountUIPrefab == null) return;
+        
+        int index = 0;
+        foreach (var brickCount in currentLevel.brickColorCounts)
+        {
+            GameObject uiElement = Instantiate(brickCountUIPrefab, brickCountUIPrefab.transform.parent);
+            uiElement.SetActive(true);
+            uiElement.name = $"BrickCountUI_{brickCount.color}";
+            
+            RectTransform rect = uiElement.GetComponent<RectTransform>();
+            if (rect != null)
+            {
+                rect.anchoredPosition = new Vector2(
+                    brickCountUIPrefab.GetComponent<RectTransform>().anchoredPosition.x,
+                    brickCountUIPrefab.GetComponent<RectTransform>().anchoredPosition.y - (index * brickCountUISpacing)
+                );
+            }
+            
+            Image bgImage = uiElement.GetComponent<Image>();
+            if (bgImage != null)
+            {
+                ColorSettings colorSetting = availableColors.Find(c => c.colorType == brickCount.color);
+                if (colorSetting != null && colorSetting.brickCountBackground != null)
+                    bgImage.sprite = colorSetting.brickCountBackground;
+            }
+            
+            Text countText = uiElement.GetComponentInChildren<Text>();
+            if (countText != null)
+            {
+                countText.name = "CountText";
+                countText.text = brickCount.count.ToString();
+            }
+            
+            Transform checkmark = uiElement.transform.Find("Checkmark");
+            if (checkmark != null)
+            {
+                checkmark.gameObject.SetActive(false);
+            }
+            
+            brickCountUIElements[brickCount.color] = uiElement;
+            index++;
+        }
+        
+        if (brickCountUIPrefab != null)
+            brickCountUIPrefab.SetActive(false);
+    }
+    
+    void UpdateBrickCountUI(BrickColor color)
+    {
+        if (!brickCountUIElements.ContainsKey(color)) return;
+        
+        GameObject uiElement = brickCountUIElements[color];
+        Text countText = uiElement.GetComponentInChildren<Text>();
+        Transform checkmark = uiElement.transform.Find("Checkmark");
+        
+        int remaining = targetBrickCounts[color] - destroyedBrickCounts[color];
+        
+        if (remaining <= 0)
+        {
+            if (countText != null) countText.gameObject.SetActive(false);
+            if (checkmark != null)
+            {
+                checkmark.gameObject.SetActive(true);
+                StartCoroutine(ScaleUIElement(checkmark, 1.5f));
+            }
+        }
+        else
+        {
+            if (countText != null)
+            {
+                countText.text = remaining.ToString();
+                StartCoroutine(ScaleUIElement(countText.transform, uiScaleAmount));
+            }
+        }
+    }
+    
+    IEnumerator ScaleUIElement(Transform element, float targetScale)
+    {
+        if (element == null) yield break;
+        
+        Vector3 originalScale = element.localScale;
+        Vector3 scaledUp = originalScale * targetScale;
+        
+        float elapsed = 0f;
+        while (elapsed < uiScaleDuration / 2f)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / (uiScaleDuration / 2f);
+            element.localScale = Vector3.Lerp(originalScale, scaledUp, t);
+            yield return null;
+        }
+        
+        elapsed = 0f;
+        while (elapsed < uiScaleDuration / 2f)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / (uiScaleDuration / 2f);
+            element.localScale = Vector3.Lerp(scaledUp, originalScale, t);
+            yield return null;
+        }
+        
+        element.localScale = originalScale;
+    }
+    
+    IEnumerator TimerPulseEffect()
+    {
+        if (ui.timerText == null) yield break;
+        
+        Transform timerTransform = ui.timerText.transform;
+        Vector3 originalScale = timerTransform.localScale;
+        
+        while (isGameActive)
+        {
+            float elapsed = 0f;
+            while (elapsed < timerPulseDuration / 2f)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / (timerPulseDuration / 2f);
+                timerTransform.localScale = Vector3.Lerp(originalScale, originalScale * timerPulseScale, t);
+                yield return null;
+            }
+            
+            elapsed = 0f;
+            while (elapsed < timerPulseDuration / 2f)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / (timerPulseDuration / 2f);
+                timerTransform.localScale = Vector3.Lerp(originalScale * timerPulseScale, originalScale, t);
+                yield return null;
+            }
+        }
+    }
+    
+    void UpdateGoldUI()
+    {
+        if (ui.goldText != null)
+        {
+            ui.goldText.text = $"{currentGold}";
+            StartCoroutine(ScaleUIElement(ui.goldText.transform, uiScaleAmount));
+        }
+    }
+    
+    void AddGold(int amount)
+    {
+        currentGold += amount * (comboCount > 0 ? scoreSettings.comboMultiplier : 1);
+        UpdateGoldUI();
+    }
+    
+    public void OnBrickDestroyed(BrickColor color, Vector3 worldPosition)
+    {
+        if (!targetBrickCounts.ContainsKey(color)) return;
+        
+        destroyedBrickCounts[color]++;
+        
+        if (brickCountUIElements.ContainsKey(color))
+        {
+            StartCoroutine(SendParticleToUI(color, worldPosition));
+        }
+        
+        CheckAllTargetsCompleted();
+    }
+    
+    IEnumerator SendParticleToUI(BrickColor color, Vector3 worldPosition)
+    {
+        GameObject uiElement = brickCountUIElements[color];
+        if (uiElement == null) yield break;
+        
+        GameObject particle = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        particle.name = "UIParticle";
+        particle.transform.localScale = Vector3.one * 0.3f;
+        particle.transform.position = worldPosition;
+        
+        ApplyBrickTexture(particle, color);
+        
+        Rigidbody rb = particle.AddComponent<Rigidbody>();
+        rb.mass = 0.1f;
+        rb.drag = 0.5f;
+        
+        Vector3 randomDir = new Vector3(Random.Range(-1f, 1f), Random.Range(1f, 2f), Random.Range(-1f, 1f));
+        rb.AddForce(randomDir * 3f, ForceMode.Impulse);
+        rb.AddTorque(Random.insideUnitSphere * 2f, ForceMode.Impulse);
+        
+        yield return new WaitForSeconds(particleGroundTime);
+        
+        rb.useGravity = false;
+        rb.velocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        
+        Camera cam = Camera.main;
+        if (cam == null) yield break;
+        
+        float duration = 0.8f;
+        float elapsed = 0f;
+        Vector3 startPos = particle.transform.position;
+        
+        while (elapsed < duration && particle != null)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / duration;
+            t = t * t * (3f - 2f * t);
+            
+            Vector3 screenTargetPos = cam.WorldToScreenPoint(uiElement.transform.position);
+            Vector3 worldTargetPos = cam.ScreenToWorldPoint(new Vector3(screenTargetPos.x, screenTargetPos.y, cam.WorldToScreenPoint(startPos).z));
+            
+            particle.transform.position = Vector3.Lerp(startPos, worldTargetPos, t);
+            particle.transform.Rotate(Vector3.up * Time.deltaTime * 720f);
+            
+            yield return null;
+        }
+        
+        if (particle != null)
+        {
+            Destroy(particle);
+            UpdateBrickCountUI(color);
+        }
+    }
+    
+    void CheckAllTargetsCompleted()
+    {
+        bool allCompleted = true;
+        foreach (var kvp in targetBrickCounts)
+        {
+            if (destroyedBrickCounts[kvp.Key] < kvp.Value)
+            {
+                allCompleted = false;
+                break;
+            }
+        }
+        
+        if (allCompleted)
+        {
             WinLevel();
+        }
     }
     
     void CreateSilhouette()
@@ -279,7 +567,7 @@ public class GameManager : MonoBehaviour
         float targetY = gridManager.GetRequiredHeight(currentGridPosition, brickSize);
         float currentY = currentBrick.transform.position.y;
         float distanceToTarget = Mathf.Abs(currentY - targetY);
-        float alpha = Mathf.Clamp01(distanceToTarget / 3.9f);
+        float alpha = Mathf.Clamp01(distanceToTarget / settings.silhouetteFadeDistance);
         
         if (alpha <= 0.01f)
         {
@@ -387,13 +675,6 @@ public class GameManager : MonoBehaviour
     {
         if (!isGameActive || isPaused) return;
         
-        if (bricksSpawned >= currentLevel.totalBricks)
-        {
-            if (currentScore < currentLevel.targetScore)
-                LoseLevel("Brick Bitti, Puan Yetersiz!");
-            return;
-        }
-        
         int currentHighestLayer = gridManager.GetHighestLayer();
         if (currentHighestLayer >= currentLevel.maxLayers)
         {
@@ -418,17 +699,15 @@ public class GameManager : MonoBehaviour
         currentBrick.name = "CurrentBrick";
         originalRotation = currentBrick.transform.eulerAngles;
         
-        currentBrickColor = currentLevel.allowedColors.Count > 0 
-            ? currentLevel.allowedColors[Random.Range(0, currentLevel.allowedColors.Count)]
-            : (BrickColor)Random.Range(0, availableColors.Count);
+        var availableColors = targetBrickCounts.Keys.ToList();
+        currentBrickColor = availableColors[Random.Range(0, availableColors.Count)];
         
         ApplyBrickTexture(currentBrick, currentBrickColor);
         CalculateBrickSize();
         InitializeBrickPosition();
         CreateSilhouette();
         
-        bricksSpawned++;
-        UpdateBricksUI();
+        maxAllowedLayer = gridManager.GetMaxLayerAtPosition(currentGridPosition, brickSize);
     }
     
     List<GameObject> GetBricksFromNames(List<string> brickNames)
@@ -468,6 +747,7 @@ public class GameManager : MonoBehaviour
         isFalling = hasLanded = isDecelerating = isSnapping = isSettling = false;
         currentFallSpeed = settings.initialFallSpeed;
         settleTimer = currentWobble = wobbleTimer = 0f;
+        maxAllowedLayer = -1;
         ClearSilhouette();
     }
     
@@ -505,8 +785,17 @@ public class GameManager : MonoBehaviour
     {
         if (!CanMoveBrick()) return;
         var newPos = new Vector2Int(currentGridPosition.x + deltaX, currentGridPosition.y + deltaY);
+        
+        int newMaxLayer = gridManager.GetMaxLayerAtPosition(newPos, brickSize);
+        if (newMaxLayer > maxAllowedLayer) return;
+        
         if (gridManager.IsValidPosition(newPos, brickSize))
-            MoveBrickToGrid(newPos.x, newPos.y);
+        {
+            currentGridPosition = newPos;
+            var gridPos = gridManager.GetGridPosition(currentGridPosition, brickSize);
+            currentBrick.transform.position = new Vector3(gridPos.x, currentBrick.transform.position.y, gridPos.z);
+            UpdateSilhouette();
+        }
     }
 
     bool CanMoveBrick()
@@ -531,6 +820,8 @@ public class GameManager : MonoBehaviour
         var newSize = new Vector2Int(brickSize.y, brickSize.x);
         AdjustPositionAfterRotation(newSize);
         brickSize = newSize;
+        
+        maxAllowedLayer = gridManager.GetMaxLayerAtPosition(currentGridPosition, brickSize);
         UpdateSilhouette();
     }
     
@@ -601,10 +892,16 @@ public class GameManager : MonoBehaviour
         else if (Input.GetKeyDown(KeyCode.RightArrow)) newPos.x++;
         else if (Input.GetKeyDown(KeyCode.LeftArrow)) newPos.x--;
         
-        if (newPos != currentGridPosition && gridManager.IsValidPosition(newPos, brickSize))
+        if (newPos != currentGridPosition)
         {
-            MoveBrickToGrid(newPos.x, newPos.y);
-            UpdateSilhouette();
+            int newMaxLayer = gridManager.GetMaxLayerAtPosition(newPos, brickSize);
+            if (newMaxLayer <= maxAllowedLayer && gridManager.IsValidPosition(newPos, brickSize))
+            {
+                currentGridPosition = newPos;
+                var gridPos = gridManager.GetGridPosition(currentGridPosition, brickSize);
+                currentBrick.transform.position = new Vector3(gridPos.x, currentBrick.transform.position.y, gridPos.z);
+                UpdateSilhouette();
+            }
         }
     }
     
@@ -656,7 +953,8 @@ public class GameManager : MonoBehaviour
         if (!isDecelerating && distance <= settings.decelerationDistance)
         {
             isDecelerating = true;
-            targetSettleY = targetY;
+            var gridPos = gridManager.GetGridPosition(currentGridPosition, brickSize);
+            targetSettlePosition = new Vector3(gridPos.x, targetY, gridPos.z);
         }
         
         if (!isDecelerating)
@@ -671,47 +969,54 @@ public class GameManager : MonoBehaviour
             if (distance < 0.2f)
             {
                 isSnapping = true;
-                overshootY = targetY + settings.settleOvershoot;
             }
         }
         
-        if (isSnapping && !isSettling) SnapToPosition(currentPos, overshootY);
-        else if (isSettling) SettleBrick(currentPos);
-        else FallNormally(currentPos, targetY);
+        if (isSnapping && !isSettling) SnapToPosition();
+        else if (isSettling) SettleBrick();
+        else FallNormally(targetY);
     }
     
-    void SnapToPosition(Vector3 currentPos, float targetY)
+    void SnapToPosition()
     {
-        float newY = Mathf.MoveTowards(currentPos.y, targetY, settings.snapSpeed * Time.deltaTime);
-        currentBrick.transform.position = new Vector3(currentPos.x, newY, currentPos.z);
+        float overshootY = targetSettlePosition.y + settings.settleOvershoot;
+        currentBrick.transform.position = Vector3.MoveTowards(
+            currentBrick.transform.position,
+            new Vector3(targetSettlePosition.x, overshootY, targetSettlePosition.z),
+            settings.snapSpeed * Time.deltaTime
+        );
         
-        if (Mathf.Abs(newY - targetY) < 0.01f)
+        if (Vector3.Distance(currentBrick.transform.position, new Vector3(targetSettlePosition.x, overshootY, targetSettlePosition.z)) < 0.01f)
         {
             isSettling = true;
             settleTimer = 0f;
         }
     }
     
-    void SettleBrick(Vector3 currentPos)
+    void SettleBrick()
     {
         settleTimer += Time.deltaTime;
         float progress = Mathf.Clamp01(settleTimer / settings.settleDuration);
         float smooth = 1f - Mathf.Pow(1f - progress, 3f);
         
         currentBrick.transform.rotation = Quaternion.Euler(originalRotation);
-        currentBrick.transform.position = new Vector3(currentPos.x, Mathf.Lerp(overshootY, targetSettleY, smooth), currentPos.z);
+        currentBrick.transform.position = Vector3.Lerp(
+            new Vector3(targetSettlePosition.x, targetSettlePosition.y + settings.settleOvershoot, targetSettlePosition.z),
+            targetSettlePosition,
+            smooth
+        );
         
         if (progress >= 1f)
         {
-            currentBrick.transform.position = new Vector3(currentPos.x, targetSettleY, currentPos.z);
+            currentBrick.transform.position = targetSettlePosition;
             OnBrickLanded();
         }
     }
     
-    void FallNormally(Vector3 currentPos, float targetY)
+    void FallNormally(float targetY)
     {
-        float newY = Mathf.MoveTowards(currentPos.y, targetY, currentFallSpeed * Time.deltaTime);
-        currentBrick.transform.position = new Vector3(currentPos.x, newY, currentPos.z);
+        float newY = Mathf.MoveTowards(currentBrick.transform.position.y, targetY, currentFallSpeed * Time.deltaTime);
+        currentBrick.transform.position = new Vector3(currentBrick.transform.position.x, newY, currentBrick.transform.position.z);
         
         if (Mathf.Approximately(newY, targetY)) OnBrickLanded();
     }
@@ -719,17 +1024,18 @@ public class GameManager : MonoBehaviour
     void OnBrickLanded()
     {
         currentBrick.transform.rotation = Quaternion.Euler(originalRotation);
+        currentBrick.transform.position = targetSettlePosition;
+        
         landedBricks.Add(currentBrick);
         currentBrick.name = $"LandedBrick_{landedBricks.Count}";
         
         gridManager.PlaceBrick(currentGridPosition, brickSize, currentBrick, currentBrickColor);
         
-        // Brick snap sesi çal
         if (AudioManager.Instance != null)
             AudioManager.Instance.PlayBrickSnap();
         
-        AddScore(scoreSettings.scorePerBrick);
-        CheckForCompletedLayers();
+        AddGold(scoreSettings.goldPerBrick);
+        CheckForMatchingLines();
         
         isFalling = false;
         hasLanded = true;
@@ -742,26 +1048,173 @@ public class GameManager : MonoBehaviour
         if (!isPaused) Invoke("SpawnNewBrick", settings.autoFallDelay);
     }
     
-    void CheckForCompletedLayers()
+    void CheckForMatchingLines()
     {
         int highest = gridManager.GetHighestLayer();
-        int layersCleared = 0;
         
-        for (int layer = highest; layer >= 0; layer--)
+        for (int layer = 0; layer <= highest; layer++)
         {
-            var layerColor = gridManager.CheckCompletedLayerWithColor(layer);
-            if (layerColor.HasValue)
+            List<Vector2Int> matchedPositions = gridManager.FindMatchingLineInLayer(layer);
+            
+            if (matchedPositions.Count > 0)
             {
-                effectManager.ClearLayerWithEffects(layer);
-                AddScore(scoreSettings.scorePerLayer);
-                layersCleared++;
-                comboCount = layersCleared;
+                HashSet<GameObject> bricksToDestroy = new HashSet<GameObject>();
+                
+                foreach (var pos in matchedPositions)
+                {
+                    var brick = gridManager.GetBrickAt(pos.x, pos.y, layer);
+                    if (brick != null)
+                    {
+                        bricksToDestroy.Add(brick);
+                    }
+                }
+                
+                BrickColor matchColor = gridManager.GetBrickColorAt(matchedPositions[0].x, matchedPositions[0].y, layer);
+                FloodFillConnectedBricks(bricksToDestroy, matchColor, layer);
+                
+                StartCoroutine(DestroyBricksWithEffects(new List<GameObject>(bricksToDestroy), layer));
+                
+                AddGold(scoreSettings.goldPerLayer);
+                comboCount++;
                 break;
             }
         }
+    }
+    
+    void FloodFillConnectedBricks(HashSet<GameObject> bricksToDestroy, BrickColor targetColor, int startLayer)
+    {
+        Queue<(GameObject brick, int layer)> queue = new Queue<(GameObject, int)>();
+        HashSet<GameObject> visited = new HashSet<GameObject>(bricksToDestroy);
         
-        if (layersCleared == 0)
-            comboCount = 0;
+        foreach (var brick in bricksToDestroy)
+        {
+            queue.Enqueue((brick, startLayer));
+        }
+        
+        int[] dx = { -1, 1, 0, 0 };
+        int[] dy = { 0, 0, -1, 1 };
+        
+        while (queue.Count > 0)
+        {
+            var (currentBrick, currentLayer) = queue.Dequeue();
+            var currentPos = gridManager.GetBrickGridPosition(currentBrick);
+            
+            for (int i = 0; i < 4; i++)
+            {
+                int newX = currentPos.x + dx[i];
+                int newY = currentPos.y + dy[i];
+                
+                if (newX >= 0 && newX < gridManager.GridWidth && newY >= 0 && newY < gridManager.GridHeight)
+                {
+                    var neighbor = gridManager.GetBrickAt(newX, newY, currentLayer);
+                    if (neighbor != null && !visited.Contains(neighbor))
+                    {
+                        if (gridManager.GetBrickColorAt(newX, newY, currentLayer) == targetColor)
+                        {
+                            visited.Add(neighbor);
+                            bricksToDestroy.Add(neighbor);
+                            queue.Enqueue((neighbor, currentLayer));
+                        }
+                    }
+                }
+            }
+            
+            for (int layerOffset = -1; layerOffset <= 1; layerOffset += 2)
+            {
+                int checkLayer = currentLayer + layerOffset;
+                if (checkLayer >= 0 && checkLayer <= gridManager.GetHighestLayer())
+                {
+                    var neighbor = gridManager.GetBrickAt(currentPos.x, currentPos.y, checkLayer);
+                    if (neighbor != null && !visited.Contains(neighbor))
+                    {
+                        if (gridManager.GetBrickColorAt(currentPos.x, currentPos.y, checkLayer) == targetColor)
+                        {
+                            visited.Add(neighbor);
+                            bricksToDestroy.Add(neighbor);
+                            queue.Enqueue((neighbor, checkLayer));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    IEnumerator DestroyBricksWithEffects(List<GameObject> bricksToDestroy, int baseLayer)
+    {
+        yield return new WaitForSeconds(layerClearDelay);
+        
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayLayerCompleteExplosion();
+        
+        HashSet<int> affectedLayers = new HashSet<int>();
+        
+        foreach (var brick in bricksToDestroy)
+        {
+            if (brick != null)
+            {
+                var gridPos = gridManager.GetBrickGridPosition(brick);
+                int brickLayer = gridManager.GetLayerAtBrickPosition(brick, gridPos);
+                affectedLayers.Add(brickLayer);
+                
+                BrickColor brickColor = gridManager.GetBrickColor(brick);
+                Vector3 brickPosition = brick.transform.position;
+                
+                effectManager.CreateParticlesForBrick(brick, brickColor, brickPosition, this);
+                
+                gridManager.RemoveBrickFromGrid(brick);
+                landedBricks.Remove(brick);
+                Destroy(brick);
+            }
+        }
+        
+        yield return new WaitForSeconds(0.3f);
+        
+        var sortedLayers = new List<int>(affectedLayers);
+        sortedLayers.Sort();
+        
+        foreach (int layer in sortedLayers)
+        {
+            List<GameObject> bricksToFall = gridManager.GetBricksAboveLayer(layer);
+            
+            foreach (var brick in bricksToFall)
+            {
+                if (brick != null)
+                {
+                    StartCoroutine(MoveBrickDown(brick, layer));
+                }
+            }
+        }
+        
+        if (sortedLayers.Count > 0)
+        {
+            yield return new WaitForSeconds(brickFallDuration);
+            if (AudioManager.Instance != null)
+                AudioManager.Instance.PlayAllBricksSettled();
+        }
+    }
+    
+    IEnumerator MoveBrickDown(GameObject brick, int removedLayer)
+    {
+        if (brick == null) yield break;
+        
+        var startPos = brick.transform.position;
+        float newHeight = gridManager.GetRequiredHeightForBrick(brick);
+        var endPos = new Vector3(startPos.x, newHeight, startPos.z);
+        
+        float elapsed = 0f;
+        while (elapsed < brickFallDuration && brick != null)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / brickFallDuration;
+            brick.transform.position = Vector3.Lerp(startPos, endPos, t);
+            yield return null;
+        }
+        
+        if (brick != null)
+        {
+            brick.transform.position = endPos;
+            gridManager.UpdateBrickPosition(brick);
+        }
     }
     
     public Vector2Int GetBrickGridPosition(GameObject brick)
@@ -772,20 +1225,20 @@ public class GameManager : MonoBehaviour
         return new Vector2Int(gridX, gridY);
     }
     
-    void MoveBrickToGrid(int x, int y)
-    {
-        currentGridPosition = new Vector2Int(x, y);
-        var gridPos = gridManager.GetGridPosition(currentGridPosition, brickSize);
-        currentBrick.transform.position = new Vector3(gridPos.x, currentBrick.transform.position.y, gridPos.z);
-    }
-    
     void OnDestroy()
     {
         ClearSilhouette();
+        
+        foreach (var obj in levelNumberObjects)
+            if (obj != null) Destroy(obj);
+        
+        foreach (var ui in brickCountUIElements.Values)
+            if (ui != null) Destroy(ui);
     }
     
     public List<BrickColor> GetCurrentLevelColors()
     {
-        return currentLevel?.allowedColors ?? new List<BrickColor>();
+        if (currentLevel == null) return new List<BrickColor>();
+        return currentLevel.brickColorCounts.Select(bc => bc.color).ToList();
     }
 }
