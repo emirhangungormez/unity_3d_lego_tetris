@@ -46,6 +46,12 @@ public class LevelManager : MonoBehaviour
     public float numberSpacing = 50f;
     public float doubleDigitOffset = 50f;
     
+    [Header("Level State UI")]
+    public Image levelStateImage;
+    public Sprite easySprite;
+    public Sprite mediumSprite;
+    public Sprite hardSprite;
+    
     [Header("Brick Count UI")]
     public GameObject brickCountUIPrefab;
     public float brickCountUISpacing = 80f;
@@ -85,6 +91,10 @@ public class LevelManager : MonoBehaviour
     private Dictionary<BrickColor, int> destroyedBrickCounts = new Dictionary<BrickColor, int>();
     private Dictionary<BrickColor, GameObject> brickCountUIElements = new Dictionary<BrickColor, GameObject>();
     private List<GameObject> levelNumberObjects = new List<GameObject>();
+    
+    // Renk kısıtlaması (üst üste 3 kere aynı renk engelleme)
+    private Queue<BrickColor> recentColors = new Queue<BrickColor>();
+    private const int MaxConsecutiveColors = 3;
 
     public LevelData CurrentLevel => currentLevel;
     public float CurrentTime => currentTime;
@@ -101,12 +111,12 @@ public class LevelManager : MonoBehaviour
     {
         if (levels.Count == 0 || currentLevelIndex >= levels.Count)
         {
-            Debug.LogError("Level bulunamadı!");
             return;
         }
         
         currentLevel = levels[currentLevelIndex];
         currentTime = currentLevel.levelTime;
+        recentColors.Clear();
         
         targetBrickCounts.Clear();
         destroyedBrickCounts.Clear();
@@ -119,6 +129,8 @@ public class LevelManager : MonoBehaviour
         gameManager.gridManager.gridSize = currentLevel.gridSize;
         gameManager.gridManager.InitializeGrid();
         
+        // Level state UI güncelle
+        UpdateLevelStateUI(currentLevel.difficulty);
         CreateLevelNumberDisplay();
         CreateBrickCountUI();
         
@@ -435,6 +447,19 @@ public class LevelManager : MonoBehaviour
             mat.mainTextureOffset = colorSettings.offset;
             renderer.material = mat;
         }
+    }
+    
+    void UpdateLevelStateUI(LevelData.Difficulty difficulty)
+    {
+        if (levelStateImage == null) return;
+        
+        levelStateImage.sprite = difficulty switch
+        {
+            LevelData.Difficulty.Easy => easySprite,
+            LevelData.Difficulty.Medium => mediumSprite,
+            LevelData.Difficulty.Hard => hardSprite,
+            _ => null
+        };
     }
     
     void OnDestroy()

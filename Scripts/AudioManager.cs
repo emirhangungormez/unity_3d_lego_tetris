@@ -82,9 +82,7 @@ public class AudioManager : MonoBehaviour
     private void PlayRandomizedSound(AudioClip clip, float volume)
     {
         if (clip == null || sfxSource == null) return;
-        
-        float randomPitch = Random.Range(minPitch, maxPitch);
-        sfxSource.pitch = randomPitch;
+        sfxSource.pitch = Random.Range(minPitch, maxPitch);
         sfxSource.PlayOneShot(clip, volume);
         sfxSource.pitch = 1f;
     }

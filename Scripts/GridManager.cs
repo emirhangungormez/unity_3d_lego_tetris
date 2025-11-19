@@ -502,49 +502,57 @@ public class GridManager : MonoBehaviour
     
     public Vector2Int GetBrickSize(GameObject brick)
     {
+        if (brick == null) return new Vector2Int(1, 1);
+        
+        // Try BrickData first
+        var brickData = brick.GetComponent<BrickData>();
+        if (brickData != null && brickData.useExplicitData)
+            return new Vector2Int(brickData.gridWidth, brickData.gridHeight);
+        
+        // Then try BoxCollider
+        var collider = brick.GetComponent<BoxCollider>();
+        if (collider != null)
+        {
+            Vector3 localSize = collider.size;
+            float yRotation = brick.transform.eulerAngles.y;
+            yRotation = yRotation % 360f;
+            if (yRotation < 0) yRotation += 360f;
+            int rotationStep = Mathf.RoundToInt(yRotation / 90f) % 4;
+            
+            float worldSizeX = (rotationStep == 0 || rotationStep == 2) ? localSize.x : localSize.z;
+            float worldSizeZ = (rotationStep == 0 || rotationStep == 2) ? localSize.z : localSize.x;
+            
+            worldSizeX *= Mathf.Abs(brick.transform.lossyScale.x);
+            worldSizeZ *= Mathf.Abs(brick.transform.lossyScale.z);
+            
+            int gridWidth = Mathf.Max(1, Mathf.RoundToInt(worldSizeX / cellSize));
+            int gridHeight = Mathf.Max(1, Mathf.RoundToInt(worldSizeZ / cellSize));
+            
+            return new Vector2Int(gridWidth, gridHeight);
+        }
+        
+        // Fallback: parse from name
         var parts = brick.name.Split('x');
         if (parts.Length == 2)
         {
             int width = 0, height = 0;
-            
-            // "Brick1x2" formatı için
             string firstPart = parts[0];
-            if (firstPart.Length > 0)
-            {
-                char lastChar = firstPart[firstPart.Length - 1];
-                if (char.IsDigit(lastChar))
-                {
-                    width = int.Parse(lastChar.ToString());
-                }
-            }
+            if (firstPart.Length > 0 && char.IsDigit(firstPart[firstPart.Length - 1]))
+                width = int.Parse(firstPart[firstPart.Length - 1].ToString());
             
-            // İkinci kısım
-            string secondPart = parts[1];
             string numberStr = "";
-            for (int i = 0; i < secondPart.Length; i++)
+            foreach (char c in parts[1])
             {
-                if (char.IsDigit(secondPart[i]))
-                {
-                    numberStr += secondPart[i];
-                }
+                if (char.IsDigit(c)) numberStr += c;
                 else break;
             }
-            
-            if (!string.IsNullOrEmpty(numberStr))
+            if (int.TryParse(numberStr, out height) && width > 0 && height > 0)
             {
-                height = int.Parse(numberStr);
-            }
-            
-            if (width > 0 && height > 0)
-            {
-                // If the brick GameObject is rotated (90 or 270 degrees around Y), swap width/height
-                if (brick != null && brick.transform != null)
+                if (brick.scene.IsValid())
                 {
-                    float yRot = Mathf.Round(brick.transform.eulerAngles.y) % 360f;
-                    if (Mathf.Abs(Mathf.DeltaAngle(yRot, 90f)) < 1f || Mathf.Abs(Mathf.DeltaAngle(yRot, 270f)) < 1f)
-                    {
+                    Vector2 rightXZ = new Vector2(brick.transform.right.x, brick.transform.right.z);
+                    if (rightXZ.sqrMagnitude > 0.0001f && Mathf.Abs(rightXZ.y) > Mathf.Abs(rightXZ.x))
                         return new Vector2Int(height, width);
-                    }
                 }
                 return new Vector2Int(width, height);
             }
@@ -631,10 +639,11 @@ public class GridManager : MonoBehaviour
     void OnDrawGizmos()
     {
         Gizmos.color = Color.white;
+        Vector3 origin = transform.position;
         for (int x = 0; x <= GridWidth; x++)
-            Gizmos.DrawLine(new Vector3(x * cellSize, 0, 0), new Vector3(x * cellSize, 0, GridHeight * cellSize));
+            Gizmos.DrawLine(new Vector3(origin.x + x * cellSize, origin.y, origin.z), new Vector3(origin.x + x * cellSize, origin.y, origin.z + GridHeight * cellSize));
         for (int y = 0; y <= GridHeight; y++)
-            Gizmos.DrawLine(new Vector3(0, 0, y * cellSize), new Vector3(GridWidth * cellSize, 0, y * cellSize));
+            Gizmos.DrawLine(new Vector3(origin.x, origin.y, origin.z + y * cellSize), new Vector3(origin.x + GridWidth * cellSize, origin.y, origin.z + y * cellSize));
     }
 }
 

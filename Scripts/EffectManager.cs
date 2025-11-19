@@ -28,14 +28,35 @@ public class EffectManager : MonoBehaviour
     public float particleGroundTime = 0.5f;
     public float uiParticleDuration = 0.8f;
     public float uiParticleScale = 0.3f;
+    
+    private Queue<GameObject> particlePool = new();
+    private const int PoolSize = 50;
+    private Dictionary<LevelManager.BrickColor, Material> particleMaterialCache = new();
 
     void Start()
     {
-        if (gameManager == null)
-            gameManager = GetComponent<GameManager>();
+        if (gameManager == null) gameManager = GetComponent<GameManager>();
+        if (levelManager == null) levelManager = GetComponent<LevelManager>();
         
-        if (levelManager == null)
-            levelManager = GetComponent<LevelManager>();
+        // Pre-populate particle pool
+        for (int i = 0; i < PoolSize; i++)
+        {
+            var p = Instantiate(brickParticlePrefab);
+            p.SetActive(false);
+            particlePool.Enqueue(p);
+        }
+    }
+    
+    GameObject GetPooledParticle()
+    {
+        return particlePool.Count > 0 ? particlePool.Dequeue() : Instantiate(brickParticlePrefab);
+    }
+    
+    void ReturnParticleToPool(GameObject particle)
+    {
+        particle.SetActive(false);
+        if (particlePool.Count < PoolSize) particlePool.Enqueue(particle);
+        else Destroy(particle);
     }
 
     public void CreateParticlesForBrick(GameObject brick, LevelManager.BrickColor color, Vector3 position)
@@ -55,44 +76,51 @@ public class EffectManager : MonoBehaviour
 
     private void CreateParticle(Vector3 position, LevelManager.BrickColor color)
     {
-        var particle = Instantiate(brickParticlePrefab, position, Quaternion.identity);
+        var particle = GetPooledParticle();
+        particle.SetActive(true);
+        particle.transform.position = position;
         particle.transform.localScale = Vector3.one * 0.5f;
 
         var rb = particle.GetComponent<Rigidbody>();
-        if (rb == null)
-        {
-            rb = particle.AddComponent<Rigidbody>();
-        }
+        if (rb == null) rb = particle.AddComponent<Rigidbody>();
         
         rb.mass = particleMass;
         rb.drag = particleDrag;
         
-        Vector3 force = new Vector3(
-            Random.Range(minForceX, maxForceX),
-            Random.Range(minForceY, maxForceY),
-            Random.Range(minForceZ, maxForceZ)
-        );
-        rb.AddForce(force, ForceMode.Impulse);
+        rb.velocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        rb.AddForce(new Vector3(Random.Range(minForceX, maxForceX), Random.Range(minForceY, maxForceY), Random.Range(minForceZ, maxForceZ)), ForceMode.Impulse);
         rb.AddTorque(Random.insideUnitSphere * torqueForce, ForceMode.Impulse);
 
         ApplyParticleTexture(particle, color);
+        StartCoroutine(ReturnParticleCoroutine(particle, 3f));
+    }
+    
+    private IEnumerator ReturnParticleCoroutine(GameObject particle, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        ReturnParticleToPool(particle);
     }
 
     private void ApplyParticleTexture(GameObject particle, LevelManager.BrickColor color)
     {
         if (particle == null || levelManager == null) return;
 
-        var colorSettings = levelManager.GetColorSettings(color);
-        if (colorSettings == null) return;
+        if (!particleMaterialCache.TryGetValue(color, out var cachedMat))
+        {
+            var colorSettings = levelManager.GetColorSettings(color);
+            if (colorSettings == null) return;
+
+            cachedMat = new Material(Shader.Find("Standard"));
+            cachedMat.mainTextureScale = colorSettings.tiling;
+            cachedMat.mainTextureOffset = colorSettings.offset;
+            particleMaterialCache[color] = cachedMat;
+        }
 
         foreach (var renderer in particle.GetComponentsInChildren<Renderer>())
         {
-            if (renderer == null) continue;
-
-            var mat = new Material(renderer.material);
-            mat.mainTextureScale = colorSettings.tiling;
-            mat.mainTextureOffset = colorSettings.offset;
-            renderer.material = mat;
+            if (renderer != null) 
+                renderer.material = cachedMat;
         }
     }
     

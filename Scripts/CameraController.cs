@@ -39,6 +39,8 @@ public class CameraController : MonoBehaviour
     private Vector3 currentImageScale, currentImageRotation;
     private bool imageInitialized = false;
     private Vector3 gridCenterOffset = Vector3.zero;
+    [Header("Debug")]
+    public bool debugLogGridCenter = false;
 
     void Start()
     {
@@ -84,9 +86,15 @@ public class CameraController : MonoBehaviour
     {
         if (gridManager)
         {
+            // Recalculate center in case grid changed at runtime
+            CalculateGridCenter();
             if (!target) target = new GameObject("CameraTarget").transform;
             // YENİ: heightOffset eklendi
             target.position = gridManager.transform.position + gridCenterOffset + Vector3.up * heightOffset;
+            if (debugLogGridCenter)
+            {
+                debugLogGridCenter = false;
+            }
         }
     }
     #endregion
