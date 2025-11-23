@@ -470,4 +470,89 @@ public class LevelManager : MonoBehaviour
         foreach (var ui in brickCountUIElements.Values)
             if (ui != null) Destroy(ui);
     }
+    
+    /// <summary>
+    /// Advance to the next level (max 100 levels)
+    /// </summary>
+    public void NextLevel()
+    {
+        if (currentLevelIndex < levels.Count - 1 && currentLevelIndex < 99)
+        {
+            currentLevelIndex++;
+            ReloadLevel();
+        }
+        else
+        {
+            Debug.LogWarning("No more levels available or reached maximum level (100)");
+        }
+    }
+    
+    /// <summary>
+    /// Restart the current level - clear scene and reload
+    /// </summary>
+    public void RestartLevel()
+    {
+        ReloadLevel();
+    }
+    
+    /// <summary>
+    /// Reload the current level - clear all game objects and reinitialize
+    /// </summary>
+    void ReloadLevel()
+    {
+        if (gameManager == null) return;
+        
+        // Disable game to prevent any game logic during reload
+        gameManager.SetGameActive(false);
+        
+        // Clean up current level
+        CleanupLevel();
+        
+        // Wait a frame then reload the scene
+        StartCoroutine(ReloadLevelDelayed());
+    }
+    
+    IEnumerator ReloadLevelDelayed()
+    {
+        yield return null;
+        UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
+    }
+    
+    /// <summary>
+    /// Clean up level objects and reset state
+    /// </summary>
+    void CleanupLevel()
+    {
+        // Clear level number displays
+        foreach (var obj in levelNumberObjects)
+            if (obj != null) Destroy(obj);
+        levelNumberObjects.Clear();
+        
+        // Clear brick count UI
+        foreach (var ui in brickCountUIElements.Values)
+            if (ui != null) Destroy(ui);
+        brickCountUIElements.Clear();
+        
+        // Reset counters
+        destroyedBrickCounts.Clear();
+        targetBrickCounts.Clear();
+        
+        // Destroy all bricks currently in the game
+        if (gameManager != null && gameManager.gridManager != null)
+        {
+            var grid = gameManager.gridManager;
+            int highest = grid.GetHighestLayer();
+            for (int layer = 0; layer <= highest; layer++)
+            {
+                var bricks = grid.GetBricksInLayer(layer);
+                foreach (var brick in bricks)
+                {
+                    if (brick != null) Destroy(brick);
+                }
+            }
+        }
+        
+        // Stop all coroutines
+        StopAllCoroutines();
+    }
 }

@@ -257,8 +257,24 @@ public class GameManager : MonoBehaviour
         {
             isPaused = false;
         }
-        
         UpdatePauseUI();
+    }
+    
+    public void SetGameActive(bool active)
+    {
+        isGameActive = active;
+    }
+
+    public void NextLevelFromUI()
+    {
+        if (levelManager != null)
+            levelManager.NextLevel();
+    }
+
+    public void RestartLevelFromUI()
+    {
+        if (levelManager != null)
+            levelManager.RestartLevel();
     }
     
     void UpdatePauseUI()
@@ -749,14 +765,18 @@ public class GameManager : MonoBehaviour
                 
                 Vector3 brickPosition = brick.transform.position;
                 
-                effectManager.CreateParticlesForBrick(brick, layerColor, brickPosition);
-                
+                // Spawn UI-directed particles for this destroyed brick (one brick => many UI particles)
                 if (levelManager.DestroyedBrickCounts.ContainsKey(layerColor))
                 {
                     var uiElement = GetBrickCountUIElement(layerColor);
                     if (uiElement != null)
                     {
-                        StartCoroutine(effectManager.SendParticleToUI(layerColor, brickPosition, uiElement));
+                        effectManager.SpawnUIParticlesForBrick(layerColor, brickPosition, uiElement);
+                    }
+                    else
+                    {
+                        // If no UI element, immediately notify level manager once
+                        levelManager.OnBrickDestroyed(layerColor);
                     }
                 }
                 

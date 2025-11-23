@@ -9,7 +9,7 @@ using UnityEngine;
 public class MovementManager : MonoBehaviour
 {
     [Header("References")]
-    public FixedJoystick joystick; // assign in inspector or will try to find
+    public WorldSpaceJoystick joystick; // assign in inspector or will try to find
     public GameManager gameManager; // assign in inspector or will try to find
     public Camera mainCamera; // if not set, will use Camera.main
 
@@ -29,6 +29,13 @@ public class MovementManager : MonoBehaviour
     [Tooltip("Camera axis angle threshold (degrees). 45 = split on diagonal lines.")]
     public float cameraAngleThreshold = 45f;
 
+    [Header("Debug / Options")]
+    [Tooltip("When true, joystick directions are mapped relative to camera. When false, uses world X/Z axes.")]
+    public bool useCameraRelative = true;
+
+    [Tooltip("Enable to log joystick input and mapped grid moves for debugging.")]
+    public bool debugJoystick = false;
+
     // internal
     float horizTimer = 0f;
     float vertTimer = 0f;
@@ -36,11 +43,36 @@ public class MovementManager : MonoBehaviour
     void Awake()
     {
         if (joystick == null)
-            joystick = FindObjectOfType<FixedJoystick>();
+            joystick = FindObjectOfType<WorldSpaceJoystick>();
         if (gameManager == null)
             gameManager = FindObjectOfType<GameManager>();
         if (mainCamera == null)
             mainCamera = Camera.main;
+        
+        // Ensure joystick handle is centered at startup if found
+        if (joystick != null)
+            joystick.CenterHandle();
+        else
+        {
+            // Try to find joystick even if it's on an inactive GameObject (useful if UI was disabled at edit time)
+            var all = Resources.FindObjectsOfTypeAll<WorldSpaceJoystick>();
+            if (all != null && all.Length > 0)
+            {
+                joystick = all[0];
+                // If the joystick GameObject is inactive, enable it so player can use it immediately
+                if (joystick != null && joystick.gameObject != null && !joystick.gameObject.activeSelf)
+                {
+                    joystick.gameObject.SetActive(true);
+                }
+            }
+        }
+    }
+
+    void Start()
+    {
+        // Some UI layout systems modify RectTransforms after Awake; ensure joystick is found
+        if (joystick == null)
+            joystick = FindObjectOfType<WorldSpaceJoystick>();
     }
 
     void Update()
@@ -80,44 +112,63 @@ public class MovementManager : MonoBehaviour
             int dir = value > 0f ? 1 : -1;
             if (isHorizontal)
             {
-                // Map horizontal input to camera-relative direction dynamically.
-                if (mainCamera == null) mainCamera = Camera.main;
-                if (mainCamera == null)
+                // Choose mapping mode
+                if (useCameraRelative)
                 {
-                    if (dir > 0) gameManager.OnMoveRightButton();
-                    else gameManager.OnMoveLeftButton();
+                    if (mainCamera == null) mainCamera = Camera.main;
+                    if (mainCamera == null)
+                    {
+                        if (dir > 0) gameManager.OnMoveRightButton();
+                        else gameManager.OnMoveLeftButton();
+                    }
+                    else
+                    {
+                        var move = MovementManagerHelpers.MapCameraDirectionToGrid(mainCamera.transform.right, dir, cameraAngleThreshold);
+                        if (debugJoystick) Debug.Log($"Joystick H:{value} mapped to {move}");
+                        switch (move)
+                        {
+                            case GridMove.Right: gameManager.OnMoveRightButton(); break;
+                            case GridMove.Left: gameManager.OnMoveLeftButton(); break;
+                            case GridMove.Up: gameManager.OnMoveUpButton(); break;
+                            case GridMove.Down: gameManager.OnMoveDownButton(); break;
+                        }
+                    }
                 }
                 else
                 {
-                    var move = MovementManagerHelpers.MapCameraDirectionToGrid(mainCamera.transform.right, dir, cameraAngleThreshold);
-                    switch (move)
-                    {
-                        case GridMove.Right: gameManager.OnMoveRightButton(); break;
-                        case GridMove.Left: gameManager.OnMoveLeftButton(); break;
-                        case GridMove.Up: gameManager.OnMoveUpButton(); break;
-                        case GridMove.Down: gameManager.OnMoveDownButton(); break;
-                    }
+                    if (dir > 0) gameManager.OnMoveRightButton();
+                    else gameManager.OnMoveLeftButton();
+                    if (debugJoystick) Debug.Log($"Joystick H:{value} mapped to world X {(dir>0?"Right":"Left")}");
                 }
             }
             else
             {
-                // Map vertical input to camera-forward direction (camera-relative)
-                if (mainCamera == null) mainCamera = Camera.main;
-                if (mainCamera == null)
+                if (useCameraRelative)
                 {
-                    if (dir > 0) gameManager.OnMoveUpButton();
-                    else gameManager.OnMoveDownButton();
+                    if (mainCamera == null) mainCamera = Camera.main;
+                    if (mainCamera == null)
+                    {
+                        if (dir > 0) gameManager.OnMoveUpButton();
+                        else gameManager.OnMoveDownButton();
+                    }
+                    else
+                    {
+                        var move = MovementManagerHelpers.MapCameraDirectionToGrid(mainCamera.transform.forward, dir, cameraAngleThreshold);
+                        if (debugJoystick) Debug.Log($"Joystick V:{value} mapped to {move}");
+                        switch (move)
+                        {
+                            case GridMove.Right: gameManager.OnMoveRightButton(); break;
+                            case GridMove.Left: gameManager.OnMoveLeftButton(); break;
+                            case GridMove.Up: gameManager.OnMoveUpButton(); break;
+                            case GridMove.Down: gameManager.OnMoveDownButton(); break;
+                        }
+                    }
                 }
                 else
                 {
-                    var move = MovementManagerHelpers.MapCameraDirectionToGrid(mainCamera.transform.forward, dir, cameraAngleThreshold);
-                    switch (move)
-                    {
-                        case GridMove.Right: gameManager.OnMoveRightButton(); break;
-                        case GridMove.Left: gameManager.OnMoveLeftButton(); break;
-                        case GridMove.Up: gameManager.OnMoveUpButton(); break;
-                        case GridMove.Down: gameManager.OnMoveDownButton(); break;
-                    }
+                    if (dir > 0) gameManager.OnMoveUpButton();
+                    else gameManager.OnMoveDownButton();
+                    if (debugJoystick) Debug.Log($"Joystick V:{value} mapped to world Z {(dir>0?"Up":"Down")}");
                 }
             }
         }

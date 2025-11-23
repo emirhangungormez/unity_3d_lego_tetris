@@ -5,58 +5,37 @@ using UnityEngine.UI;
 
 public class JoystickSetterExample : MonoBehaviour
 {
-    public VariableJoystick variableJoystick;
+    public WorldSpaceJoystick variableJoystick;
     public Text valueText;
     public Image background;
     public Sprite[] axisSprites;
 
     public void ModeChanged(int index)
     {
-        switch(index)
-        {
-            case 0:
-                variableJoystick.SetMode(JoystickType.Fixed);
-                break;
-            case 1:
-                variableJoystick.SetMode(JoystickType.Floating);
-                break;
-            case 2:
-                variableJoystick.SetMode(JoystickType.Dynamic);
-                break;
-            default:
-                break;
-        }     
+        // WorldSpaceJoystick does not support dynamic mode switching
+        // The joystick type is fixed in the prefab configuration
+        Debug.Log("Mode switching not supported for WorldSpaceJoystick");
     }
 
     public void AxisChanged(int index)
     {
-        switch (index)
-        {
-            case 0:
-                variableJoystick.AxisOptions = AxisOptions.Both;
-                background.sprite = axisSprites[index];
-                break;
-            case 1:
-                variableJoystick.AxisOptions = AxisOptions.Horizontal;
-                background.sprite = axisSprites[index];
-                break;
-            case 2:
-                variableJoystick.AxisOptions = AxisOptions.Vertical;
-                background.sprite = axisSprites[index];
-                break;
-            default:
-                break;
-        }
+        // WorldSpaceJoystick does not support axis options
+        // The joystick handles both axes automatically
+        if (index < axisSprites.Length)
+            background.sprite = axisSprites[index];
+        Debug.Log("Axis selection not supported for WorldSpaceJoystick");
     }
 
     public void SnapX(bool value)
     {
-        variableJoystick.SnapX = value;
+        // WorldSpaceJoystick does not support snap options
+        Debug.Log("SnapX not supported for WorldSpaceJoystick");
     }
 
     public void SnapY(bool value)
     {
-        variableJoystick.SnapY = value;
+        // WorldSpaceJoystick does not support snap options
+        Debug.Log("SnapY not supported for WorldSpaceJoystick");
     }
 
     private void Update()

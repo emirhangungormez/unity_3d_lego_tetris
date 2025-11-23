@@ -38,7 +38,6 @@ public class WinPanelConfetti : MonoBehaviour
 
     private Camera mainCamera;
     private Coroutine leftRoutine, rightRoutine;
-    private bool isSpawning = false;
     [Header("Anchors")]
     [Tooltip("Optional: assign explicit Transforms for Left/Right spawn anchors. If empty, script will search camera children named 'Left'/'Right'.")]
     public Transform leftAnchor;
@@ -117,7 +116,6 @@ public class WinPanelConfetti : MonoBehaviour
         }
 
         StopConfetti();
-        isSpawning = true;
         if (leftAnchor != null) leftRoutine = StartCoroutine(SpawnFromAnchor(leftAnchor, true, confettiPerSide));
         if (rightAnchor != null) rightRoutine = StartCoroutine(SpawnFromAnchor(rightAnchor, false, confettiPerSide));
     }
@@ -125,7 +123,6 @@ public class WinPanelConfetti : MonoBehaviour
     // Stop and cleanup confetti immediately
     public void StopConfetti()
     {
-        isSpawning = false;
         if (leftRoutine != null) { StopCoroutine(leftRoutine); leftRoutine = null; }
         if (rightRoutine != null) { StopCoroutine(rightRoutine); rightRoutine = null; }
         // deactivate active confetti and return to pool
@@ -191,6 +188,15 @@ public class WinPanelConfetti : MonoBehaviour
         SetupConfettiPhysics(confetti, isLeftSide);
         ApplyRandomColor(confetti);
 
+        // Attach camera-space gravity so confetti always falls toward screen bottom
+        if (confetti.GetComponent<Confetti2DGravity>() == null)
+        {
+            var g = confetti.AddComponent<Confetti2DGravity>();
+            // tune defaults if desired
+            g.gravity = 9.81f;
+            g.gravityScale = 1.0f;
+        }
+
         activeConfetti.Add(confetti);
         Destroy(confetti, confettiLifetime);
     }
@@ -211,7 +217,9 @@ public class WinPanelConfetti : MonoBehaviour
         rb.mass = confettiMass;
         rb.drag = confettiDrag;
         rb.angularDrag = confettiAngularDrag;
-        rb.useGravity = true;
+        // We will drive gravity in Confetti2DGravity (camera-space down), so disable built-in gravity.
+        rb.useGravity = false;
+        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
         rb.velocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
 

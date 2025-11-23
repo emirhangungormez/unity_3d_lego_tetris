@@ -185,6 +185,9 @@ public class CameraController : MonoBehaviour
     
     Vector2 GetRotationInput()
     {
+        // Check if input is in the bottom 25% of the screen (joystick area) - disable camera rotation
+        if (IsInputInBottomQuarter()) return Vector2.zero;
+        
         if (Input.GetMouseButton(0) || Input.GetMouseButton(1))
             return new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
         
@@ -194,6 +197,28 @@ public class CameraController : MonoBehaviour
             if (touch.phase == TouchPhase.Moved) return touch.deltaPosition * 0.02f;
         }
         return Vector2.zero;
+    }
+    
+    bool IsInputInBottomQuarter()
+    {
+        // Mouse input check
+        if (Input.GetMouseButton(0) || Input.GetMouseButton(1))
+        {
+            float mouseY = Input.mousePosition.y;
+            float screenHeight = Screen.height;
+            return mouseY < screenHeight * 0.25f;
+        }
+        
+        // Touch input check
+        if (Input.touchCount == 1)
+        {
+            Touch touch = Input.GetTouch(0);
+            float touchY = touch.position.y;
+            float screenHeight = Screen.height;
+            return touchY < screenHeight * 0.25f;
+        }
+        
+        return false;
     }
     #endregion
 
