@@ -42,6 +42,7 @@ public class GameManager : MonoBehaviour
     public GridManager gridManager;
     public EffectManager effectManager;
     public LevelManager levelManager;
+    public WinPanelConfetti confettiRunner;
     public List<GameObject> brickPrefabs;
     
     [Header("UI Animation Settings")]
@@ -76,17 +77,14 @@ public class GameManager : MonoBehaviour
     private bool isPaused, isGameActive;
     private int currentPauseChances, currentGold, comboCount;
     
-    // Cached lists for GC optimization
     private static readonly List<GameObject> cachedAvailableBricks = new();
     private static readonly List<GameObject> cachedSuitableBricks = new();
     private static readonly Queue<(int, int, int)> cachedFloodFillQueue = new();
     private static readonly HashSet<(int, int, int)> cachedFloodFillVisited = new();
     
-    // Renk kısıtlaması (üst üste 3 aynı renk engelleme)
     private Queue<LevelManager.BrickColor> recentBrickColors = new();
     private const int MaxConsecutiveColors = 3;
     
-    // Material cache for ghost preview (avoid per-frame Material allocations)
     private Dictionary<Material, Material> ghostMaterialCache = new();
     private float ghostBaseAlpha = 0.35f;
 
@@ -113,8 +111,8 @@ public class GameManager : MonoBehaviour
         if (ui.winPanel != null)
         {
             ui.winPanel.SetActive(false);
-            var confetti = ui.winPanel.GetComponent<WinPanelConfetti>();
-            if (confetti != null) confetti.StopConfetti();
+            var conf = ui.winPanel.GetComponent<WinPanelConfetti>();
+            if (conf != null) conf.StopConfetti();
         }
         if (ui.losePanel != null) ui.losePanel.SetActive(false);
 
@@ -124,14 +122,35 @@ public class GameManager : MonoBehaviour
         UpdatePauseUI();
         UpdateGoldUI();
 
+        var camCtrl = Camera.main != null ? Camera.main.GetComponent<CameraController>() : null;
+        if (camCtrl != null) camCtrl.allowInput = true;
+
+        if (confettiRunner != null)
+        {
+            if (confettiRunner.gameObject.activeInHierarchy && confettiRunner.enabled)
+                confettiRunner.StopConfetti();
+        }
+        else if (ui.winPanel != null)
+        {
+            var panelConfetti = ui.winPanel.GetComponent<WinPanelConfetti>();
+            if (panelConfetti != null)
+                panelConfetti.StopConfetti();
+        }
+
         SpawnNewBrick();
     }
-
-
 
     void UpdateFallLine()
     {
         UpdateGhostPreviewPosition();
+    }
+
+    private void SetLayerRecursively(Transform t, int layer)
+    {
+        if (t == null) return;
+        t.gameObject.layer = layer;
+        for (int i = 0; i < t.childCount; i++)
+            SetLayerRecursively(t.GetChild(i), layer);
     }
 
     public IEnumerator ScaleUIElement(Transform element, float targetScale)
@@ -186,6 +205,34 @@ public class GameManager : MonoBehaviour
             ui.winPanel.SetActive(true);
             var confetti = ui.winPanel.GetComponent<WinPanelConfetti>();
             if (confetti != null) confetti.StartConfetti();
+        }
+
+        int winLoseLayer = LayerMask.NameToLayer("WinLose");
+        if (winLoseLayer == -1)
+        {
+            Debug.LogWarning("WinLevel: Layer 'WinLose' not found in project. Assign the layer in Project Settings -> Tags & Layers to enable visual separation.");
+        }
+        else
+        {
+            for (int i = 0; i < landedBricks.Count; i++)
+            {
+                var b = landedBricks[i];
+                if (b == null) continue;
+                SetLayerRecursively(b.transform, winLoseLayer);
+            }
+        }
+
+        if (confettiRunner != null)
+        {
+            if (confettiRunner.gameObject.activeInHierarchy && confettiRunner.enabled)
+                confettiRunner.StartConfetti();
+        }
+        
+        var mainCam = Camera.main;
+        if (mainCam != null)
+        {
+            var camController = mainCam.GetComponent<CameraController>();
+            if (camController != null) camController.allowInput = false;
         }
     }
     
@@ -255,7 +302,6 @@ public class GameManager : MonoBehaviour
         var availableColors = new List<LevelManager.BrickColor>(levelManager.TargetBrickCounts.Keys);
         if (availableColors.Count == 0) return LevelManager.BrickColor.Orange;
         
-        // Üst üste 3 aynı renk varsa, o rengi hariç tut
         if (recentBrickColors.Count >= MaxConsecutiveColors)
         {
             var colors = recentBrickColors.ToArray();
@@ -351,6 +397,7 @@ public class GameManager : MonoBehaviour
 
         HandleBrickFalling();
         HandleKeyboardInput();
+        HandlePointerInput();
     }
     
     void HandleBrickFalling()
@@ -374,6 +421,51 @@ public class GameManager : MonoBehaviour
         else if (Input.GetKeyDown(KeyCode.DownArrow)) TryMoveBrick(0, -1);
         else if (Input.GetKeyDown(KeyCode.RightArrow)) TryMoveBrick(1, 0);
         else if (Input.GetKeyDown(KeyCode.LeftArrow)) TryMoveBrick(-1, 0);
+        else if (Input.GetKeyDown(KeyCode.R)) RotateCurrentBrick();
+    }
+
+    // Handle mouse click or touch tap to rotate the current brick when tapped/clicked
+    void HandlePointerInput()
+    {
+        if (currentBrick == null) return;
+
+        // Mouse click (editor / standalone)
+        if (Input.GetMouseButtonDown(0))
+        {
+            ProcessPointer(Input.mousePosition);
+            return;
+        }
+
+        // Touch (mobile)
+        if (Input.touchCount > 0)
+        {
+            var touch = Input.GetTouch(0);
+            if (touch.phase == TouchPhase.Began)
+            {
+                ProcessPointer(touch.position);
+            }
+        }
+    }
+
+    void ProcessPointer(Vector2 screenPos)
+    {
+        if (Camera.main == null) return;
+
+        Ray ray = Camera.main.ScreenPointToRay(screenPos);
+        if (Physics.Raycast(ray, out RaycastHit hit, 100f))
+        {
+            var hitTransform = hit.collider.transform;
+
+            // Ignore ghost preview
+            if (ghostPreview != null && (hit.collider.gameObject == ghostPreview || hitTransform.IsChildOf(ghostPreview.transform)))
+                return;
+
+            // If the hit object is the current brick or a child of it, rotate
+            if (currentBrick != null && (hit.collider.gameObject == currentBrick || hitTransform.IsChildOf(currentBrick.transform)))
+            {
+                RotateCurrentBrick();
+            }
+        }
     }
     
     void TryMoveBrick(int deltaX, int deltaY)
@@ -394,7 +486,90 @@ public class GameManager : MonoBehaviour
             UpdateGhostPreviewPosition();
         }
     }
-    
+
+    void RotateCurrentBrick()
+    {
+        if (currentBrick == null) return;
+
+        // Mevcut durumu kaydet
+        Vector2Int oldSize = gridManager.GetBrickSize(currentBrick);
+        Vector2Int oldGridPos = currentBrickGridPos;
+        float currentY = currentBrick.transform.position.y;
+
+        Debug.Log($"Before rotation - Grid: ({oldGridPos.x},{oldGridPos.y}), Size: {oldSize.x}x{oldSize.y}");
+
+        // Brick'i döndür
+        currentBrick.transform.Rotate(0, 90, 0);
+        
+        // Yeni boyutu al
+        Vector2Int newSize = gridManager.GetBrickSize(currentBrick);
+
+        Debug.Log($"After rotation - New Size: {newSize.x}x{newSize.y}");
+
+        // YENİ YAKLAŞIM: Mevcut dünya pozisyonundan grid pozisyonunu yeniden hesapla
+        Vector3 currentWorldPos = currentBrick.transform.position;
+        Vector2Int estimatedGridPos = gridManager.WorldToGridPosition(currentWorldPos);
+
+        // Brick boyutuna göre grid pozisyonunu ayarla
+        Vector2Int newGridPos = CalculateAdjustedGridPosition(estimatedGridPos, newSize);
+
+        Debug.Log($"Estimated grid: {estimatedGridPos}, Adjusted grid: {newGridPos}");
+
+        // Yeni pozisyon geçerli mi kontrol et
+        if (gridManager.IsValidPosition(newGridPos, newSize))
+        {
+            currentBrickGridPos = newGridPos;
+            ForceAlignBrickToGrid(currentY);
+            Debug.Log($"Rotation successful - Final position: {currentBrickGridPos}");
+        }
+        else
+        {
+            // Geçerli değilse, brick'i geri döndür
+            Debug.LogWarning("Invalid position after rotation, reverting...");
+            currentBrick.transform.Rotate(0, -90, 0);
+        }
+    }
+
+    Vector2Int CalculateAdjustedGridPosition(Vector2Int estimatedPos, Vector2Int brickSize)
+    {
+        // Brick'in tamamen grid içinde olmasını sağla
+        Vector2Int adjustedPos = estimatedPos;
+        
+        // Brick grid'in sağ veya üst sınırından taşıyorsa, içeri al
+        if (adjustedPos.x + brickSize.x > gridManager.GridWidth)
+        {
+            adjustedPos.x = gridManager.GridWidth - brickSize.x;
+        }
+        
+        if (adjustedPos.y + brickSize.y > gridManager.GridHeight)
+        {
+            adjustedPos.y = gridManager.GridHeight - brickSize.y;
+        }
+        
+        // Negatif pozisyonları önle
+        adjustedPos.x = Mathf.Max(0, adjustedPos.x);
+        adjustedPos.y = Mathf.Max(0, adjustedPos.y);
+        
+        return adjustedPos;
+    }
+
+    void ForceAlignBrickToGrid(float preserveY)
+    {
+        if (currentBrick == null) return;
+        
+        Vector2Int brickSize = gridManager.GetBrickSize(currentBrick);
+        
+        // Grid pozisyonundan world pozisyonunu hesapla
+        Vector3 targetWorldPos = gridManager.GetGridPosition(currentBrickGridPos, brickSize);
+        
+        // Brick'i tamamen yeniden konumlandır
+        currentBrick.transform.position = new Vector3(targetWorldPos.x, preserveY, targetWorldPos.z);
+        
+        // Ghost preview'ı güncelle
+        UpdateGhostPreviewPosition();
+        
+        Debug.Log($"Brick forcefully aligned to grid: {currentBrickGridPos}, World: {currentBrick.transform.position}");
+    }
     
     void OnBrickLanded()
     {
@@ -470,13 +645,11 @@ public class GameManager : MonoBehaviour
         color = LevelManager.BrickColor.Orange;
         LevelManager.BrickColor? firstColor = null;
         
-        
         for (int x = 0; x < gridManager.GridWidth; x++)
         {
             for (int y = 0; y < gridManager.GridHeight; y++)
             {
                 var brick = gridManager.GetBrickAt(x, y, layer);
-                
                 
                 if (brick == null)
                 {
@@ -485,20 +658,17 @@ public class GameManager : MonoBehaviour
                 
                 var cellColor = gridManager.GetBrickColorAt(x, y, layer);
                 
-                
                 if (firstColor == null)
                 {
                     firstColor = cellColor;
                     color = cellColor;
                 }
-                
                 else if (cellColor != firstColor)
                 {
                     return false;
                 }
             }
         }
-        
         
         return firstColor != null;
     }
@@ -540,7 +710,6 @@ public class GameManager : MonoBehaviour
     void CheckAndAddNeighbor(int x, int y, int layer, LevelManager.BrickColor targetColor, 
                              Queue<(int, int, int)> queue, HashSet<(int, int, int)> visited)
     {
-        
         if (x < 0 || x >= gridManager.GridWidth || 
             y < 0 || y >= gridManager.GridHeight || 
             layer < 0 || layer > gridManager.GetHighestLayer())
@@ -548,12 +717,10 @@ public class GameManager : MonoBehaviour
             return;
         }
         
-        
         if (visited.Contains((x, y, layer)))
         {
             return;
         }
-        
         
         var brick = gridManager.GetBrickAt(x, y, layer);
         if (brick != null && gridManager.GetBrickColorAt(x, y, layer) == targetColor)
@@ -580,7 +747,6 @@ public class GameManager : MonoBehaviour
                 int brickLayer = gridManager.GetLayerAtBrickPosition(brick, gridPos);
                 affectedLayers.Add(brickLayer);
                 
-                // Katman rengini kullan
                 Vector3 brickPosition = brick.transform.position;
                 
                 effectManager.CreateParticlesForBrick(brick, layerColor, brickPosition);
@@ -744,44 +910,42 @@ public class GameManager : MonoBehaviour
         ghostRenderers.Clear();
     }
     
-    
     private void AlignBrickToGridXZ(GameObject brick, Vector3 targetCenterXZ)
     {
         if (brick == null) return;
         
+        // YENİ VE DAHA ETKİLİ HİZALAMA
         var collider = brick.GetComponent<BoxCollider>();
         if (collider != null)
         {
-            Vector3 colliderCenterWorld = brick.transform.TransformPoint(collider.center);
-            Vector3 offsetXZ = new Vector3(
-                colliderCenterWorld.x - brick.transform.position.x,
-                0,
-                colliderCenterWorld.z - brick.transform.position.z
-            );
+            // Collider'ın merkezini kullanarak tam hizalama
+            Vector3 colliderCenter = brick.transform.TransformPoint(collider.center);
+            Vector3 offset = colliderCenter - brick.transform.position;
             
+            // Sadece X ve Z offset'ini kullan
+            Vector3 offsetXZ = new Vector3(offset.x, 0, offset.z);
             Vector3 newPos = targetCenterXZ - offsetXZ;
             newPos.y = brick.transform.position.y;
+            
             brick.transform.position = newPos;
             return;
         }
 
-        var colliders = brick.GetComponentsInChildren<Collider>();
-        if (colliders != null && colliders.Length > 0)
-        {
-            Bounds combined = colliders[0].bounds;
-            for (int i = 1; i < colliders.Length; i++) combined.Encapsulate(colliders[i].bounds);
-            Vector3 delta = new Vector3(targetCenterXZ.x - combined.center.x, 0f, targetCenterXZ.z - combined.center.z);
-            brick.transform.position += delta;
-            return;
-        }
-
+        // Fallback: Renderer bounds kullan
         var renderers = brick.GetComponentsInChildren<Renderer>();
         if (renderers != null && renderers.Length > 0)
         {
-            Bounds combinedR = renderers[0].bounds;
-            for (int i = 1; i < renderers.Length; i++) combinedR.Encapsulate(renderers[i].bounds);
-            Vector3 deltaR = new Vector3(targetCenterXZ.x - combinedR.center.x, 0f, targetCenterXZ.z - combinedR.center.z);
-            brick.transform.position += deltaR;
+            Bounds combinedBounds = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++) 
+                combinedBounds.Encapsulate(renderers[i].bounds);
+            
+            Vector3 centerDelta = new Vector3(
+                targetCenterXZ.x - combinedBounds.center.x,
+                0f,
+                targetCenterXZ.z - combinedBounds.center.z
+            );
+            
+            brick.transform.position += centerDelta;
         }
     }
     #endregion

@@ -174,7 +174,19 @@ public class GridManager : MonoBehaviour
         transform.position.y,
         transform.position.z + gridPos.y * cellSize + (size.y * cellSize * 0.5f)
     );
-    
+
+    public Vector2Int WorldToGridPosition(Vector3 worldPos)
+    {
+        Vector3 localPos = worldPos - transform.position;
+        int gridX = Mathf.FloorToInt(localPos.x / cellSize);
+        int gridZ = Mathf.FloorToInt(localPos.z / cellSize);
+        
+        return new Vector2Int(
+            Mathf.Clamp(gridX, 0, GridWidth - 1),
+            Mathf.Clamp(gridZ, 0, GridHeight - 1)
+        );
+    }
+
     public float GetRequiredHeight(Vector2Int gridPos, Vector2Int size)
     {
         int maxLayer = -1;
@@ -504,58 +516,54 @@ public class GridManager : MonoBehaviour
     {
         if (brick == null) return new Vector2Int(1, 1);
         
-        // Try BrickData first
-        var brickData = brick.GetComponent<BrickData>();
-        if (brickData != null && brickData.useExplicitData)
-            return new Vector2Int(brickData.gridWidth, brickData.gridHeight);
-        
-        // Then try BoxCollider
         var collider = brick.GetComponent<BoxCollider>();
         if (collider != null)
         {
             Vector3 localSize = collider.size;
             float yRotation = brick.transform.eulerAngles.y;
-            yRotation = yRotation % 360f;
-            if (yRotation < 0) yRotation += 360f;
-            int rotationStep = Mathf.RoundToInt(yRotation / 90f) % 4;
             
-            float worldSizeX = (rotationStep == 0 || rotationStep == 2) ? localSize.x : localSize.z;
-            float worldSizeZ = (rotationStep == 0 || rotationStep == 2) ? localSize.z : localSize.x;
+            // Rotasyonu normalize et (0-360 arası)
+            yRotation = (yRotation % 360f + 360f) % 360f;
             
-            worldSizeX *= Mathf.Abs(brick.transform.lossyScale.x);
-            worldSizeZ *= Mathf.Abs(brick.transform.lossyScale.z);
+            int gridWidth, gridHeight;
             
-            int gridWidth = Mathf.Max(1, Mathf.RoundToInt(worldSizeX / cellSize));
-            int gridHeight = Mathf.Max(1, Mathf.RoundToInt(worldSizeZ / cellSize));
+            // 90° veya 270° dönüşte boyutları değiştir
+            if ((yRotation >= 45f && yRotation < 135f) || (yRotation >= 225f && yRotation < 315f))
+            {
+                gridWidth = Mathf.RoundToInt(localSize.z * Mathf.Abs(brick.transform.lossyScale.z) / cellSize);
+                gridHeight = Mathf.RoundToInt(localSize.x * Mathf.Abs(brick.transform.lossyScale.x) / cellSize);
+            }
+            else // 0° veya 180°
+            {
+                gridWidth = Mathf.RoundToInt(localSize.x * Mathf.Abs(brick.transform.lossyScale.x) / cellSize);
+                gridHeight = Mathf.RoundToInt(localSize.z * Mathf.Abs(brick.transform.lossyScale.z) / cellSize);
+            }
             
-            return new Vector2Int(gridWidth, gridHeight);
+            return new Vector2Int(Mathf.Max(1, gridWidth), Mathf.Max(1, gridHeight));
         }
         
-        // Fallback: parse from name
-        var parts = brick.name.Split('x');
-        if (parts.Length == 2)
+        // Fallback: isimden parse et
+        return ParseBrickSizeFromName(brick.name);
+    }
+
+    private Vector2Int ParseBrickSizeFromName(string brickName)
+    {
+        var parts = brickName.Split('x');
+        if (parts.Length >= 2)
         {
-            int width = 0, height = 0;
-            string firstPart = parts[0];
-            if (firstPart.Length > 0 && char.IsDigit(firstPart[firstPart.Length - 1]))
-                width = int.Parse(firstPart[firstPart.Length - 1].ToString());
+            int width = 1, height = 1;
             
-            string numberStr = "";
+            string widthStr = "";
+            foreach (char c in parts[0])
+                if (char.IsDigit(c)) widthStr += c;
+            int.TryParse(widthStr, out width);
+            
+            string heightStr = "";
             foreach (char c in parts[1])
-            {
-                if (char.IsDigit(c)) numberStr += c;
-                else break;
-            }
-            if (int.TryParse(numberStr, out height) && width > 0 && height > 0)
-            {
-                if (brick.scene.IsValid())
-                {
-                    Vector2 rightXZ = new Vector2(brick.transform.right.x, brick.transform.right.z);
-                    if (rightXZ.sqrMagnitude > 0.0001f && Mathf.Abs(rightXZ.y) > Mathf.Abs(rightXZ.x))
-                        return new Vector2Int(height, width);
-                }
-                return new Vector2Int(width, height);
-            }
+                if (char.IsDigit(c)) heightStr += c;
+            int.TryParse(heightStr, out height);
+            
+            return new Vector2Int(Mathf.Max(1, width), Mathf.Max(1, height));
         }
         
         return new Vector2Int(1, 1);

@@ -1,5 +1,10 @@
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
+#if UNITY_EDITOR
+using UnityEditor;
+using UnityEditor.SceneManagement;
+#endif
 
 public class WinPanelConfetti : MonoBehaviour
 {
@@ -9,7 +14,10 @@ public class WinPanelConfetti : MonoBehaviour
     [Header("Confetti Settings")]
     public GameObject[] confettiBrickPrefabs;
     public int confettiPerSide = 30;
-    public float confettiScale = 0.4f;
+    public float confettiScale = 1.2f;
+    [Header("Pooling")]
+    public int confettiPoolSize = 0; // unused when pooling is disabled
+    private List<GameObject> activeConfetti = new List<GameObject>();
     
     [Header("Spawn Settings")]
     public float spawnHeight = 5f;
@@ -28,12 +36,13 @@ public class WinPanelConfetti : MonoBehaviour
     public float screenEdgeOffset = 0.05f;
     public float screenHeightPosition = 0.3f;
 
-    private List<GameObject> activeConfetti = new List<GameObject>();
     private Camera mainCamera;
-    private float nextSpawnTime;
-    private int leftSpawnCount;
-    private int rightSpawnCount;
+    private Coroutine leftRoutine, rightRoutine;
     private bool isSpawning = false;
+    [Header("Anchors")]
+    [Tooltip("Optional: assign explicit Transforms for Left/Right spawn anchors. If empty, script will search camera children named 'Left'/'Right'.")]
+    public Transform leftAnchor;
+    public Transform rightAnchor;
 
     void Awake()
     {
@@ -41,94 +50,147 @@ public class WinPanelConfetti : MonoBehaviour
             levelManager = FindObjectOfType<LevelManager>();
     }
 
+#if UNITY_EDITOR
+    // Editor-time validation: DO NOT automatically remove entries while editing because
+    // that can interfere with dragging prefabs into the array. Instead, report invalid
+    // entries and provide a menu tool to clean them explicitly.
+    void OnValidate()
+    {
+        if (confettiBrickPrefabs == null || confettiBrickPrefabs.Length == 0) return;
+        for (int i = 0; i < confettiBrickPrefabs.Length; i++)
+        {
+            var p = confettiBrickPrefabs[i];
+            if (p == null)
+            {
+                Debug.LogWarning($"WinPanelConfetti: confettiBrickPrefabs[{i}] is null. Use the 'Tools/Confetti/Clean Prefabs' menu to remove null/invalid entries safely.");
+                continue;
+            }
+
+            var comps = p.GetComponents<Component>();
+            bool hasMissing = false;
+            foreach (var c in comps) if (c == null) { hasMissing = true; break; }
+            if (hasMissing)
+            {
+                Debug.LogError($"WinPanelConfetti: Prefab '{p.name}' contains a missing script reference. Use the 'Tools/Confetti/Clean Prefabs' menu to remove or fix it.");
+            }
+        }
+    }
+#endif
+
     void OnEnable()
     {
-        // Initialize camera reference and ensure confetti is cleaned up.
+        // Initialize camera reference
         mainCamera = Camera.main;
-        CleanupConfetti();
+        // find Left/Right anchors (camera children) only if not assigned in Inspector
+        if (mainCamera != null)
+        {
+            if (leftAnchor == null)
+                leftAnchor = FindChildRecursive(mainCamera.transform, "Left");
+            if (rightAnchor == null)
+                rightAnchor = FindChildRecursive(mainCamera.transform, "Right");
+            // fallback: try Find in scene by name
+            if (leftAnchor == null)
+                leftAnchor = GameObject.Find("Left")?.transform;
+            if (rightAnchor == null)
+                rightAnchor = GameObject.Find("Right")?.transform;
+        }
     }
 
     void Update()
     {
-        if (!isSpawning) return;
-        if (leftSpawnCount <= 0 && rightSpawnCount <= 0)
-        {
-            isSpawning = false;
-            return;
-        }
-        
-        if (Time.time >= nextSpawnTime)
-        {
-            if (leftSpawnCount > 0)
-            {
-                SpawnConfetti(GetScreenEdgePosition(true), true);
-                leftSpawnCount--;
-            }
-            
-            if (rightSpawnCount > 0)
-            {
-                SpawnConfetti(GetScreenEdgePosition(false), false);
-                rightSpawnCount--;
-            }
-            
-            nextSpawnTime = Time.time + (1f / spawnRatePerSecond);
-        }
+        // Spawning is handled by coroutines started in StartConfetti/StopConfetti.
+        // Keep Update minimal to avoid relying on external counters.
     }
 
     // Call to start confetti effect (e.g. when win panel becomes active)
     public void StartConfetti()
     {
         if (mainCamera == null) mainCamera = Camera.main;
-        leftSpawnCount = confettiPerSide;
-        rightSpawnCount = confettiPerSide;
-        nextSpawnTime = Time.time;
+        if (leftAnchor == null && mainCamera != null) leftAnchor = FindChildRecursive(mainCamera.transform, "Left");
+        if (rightAnchor == null && mainCamera != null) rightAnchor = FindChildRecursive(mainCamera.transform, "Right");
+        if (leftAnchor == null) leftAnchor = GameObject.Find("Left")?.transform;
+        if (rightAnchor == null) rightAnchor = GameObject.Find("Right")?.transform;
+        if (leftAnchor == null && rightAnchor == null)
+        {
+            Debug.LogWarning("WinPanelConfetti: Left and Right anchors not found on camera.");
+            return;
+        }
+
+        StopConfetti();
         isSpawning = true;
+        if (leftAnchor != null) leftRoutine = StartCoroutine(SpawnFromAnchor(leftAnchor, true, confettiPerSide));
+        if (rightAnchor != null) rightRoutine = StartCoroutine(SpawnFromAnchor(rightAnchor, false, confettiPerSide));
     }
 
     // Stop and cleanup confetti immediately
     public void StopConfetti()
     {
         isSpawning = false;
-        CleanupConfetti();
+        if (leftRoutine != null) { StopCoroutine(leftRoutine); leftRoutine = null; }
+        if (rightRoutine != null) { StopCoroutine(rightRoutine); rightRoutine = null; }
+        // deactivate active confetti and return to pool
+        for (int i = activeConfetti.Count - 1; i >= 0; i--)
+        {
+            var c = activeConfetti[i];
+            if (c != null)
+            {
+                // destroy spawned confetti instances
+                Destroy(c);
+            }
+            activeConfetti.RemoveAt(i);
+        }
     }
 
-    private Vector3 GetScreenEdgePosition(bool isLeft)
+    // Not used: spawning uses camera child anchors
+
+    private IEnumerator SpawnFromAnchor(Transform anchor, bool isLeftSide, int count)
     {
-        if (mainCamera == null) mainCamera = Camera.main;
-        if (mainCamera == null) return Vector3.zero;
-        
-        float xPos = isLeft ? screenEdgeOffset : (1f - screenEdgeOffset);
-        Vector3 screenPos = new Vector3(
-            Screen.width * xPos,
-            Screen.height * screenHeightPosition,
-            10f
-        );
-        
-        Vector3 worldPos = mainCamera.ScreenToWorldPoint(screenPos);
-        worldPos.y = spawnHeight;
-        
-        return worldPos;
+        for (int i = 0; i < count; i++)
+        {
+            // spawn slightly above anchor using spawnHeight
+            Vector3 spawnPos = anchor.position + Vector3.up * spawnHeight;
+            SpawnOne(spawnPos, isLeftSide);
+            yield return new WaitForSeconds(1f / spawnRatePerSecond);
+        }
     }
 
-    private void SpawnConfetti(Vector3 spawnPosition, bool isLeftSide)
+    // Recursively search children for a transform with given name (case-sensitive)
+    private Transform FindChildRecursive(Transform parent, string name)
+    {
+        if (parent == null) return null;
+        for (int i = 0; i < parent.childCount; i++)
+        {
+            var child = parent.GetChild(i);
+            if (child.name == name) return child;
+            var found = FindChildRecursive(child, name);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private void SpawnOne(Vector3 spawnPosition, bool isLeftSide)
     {
         if (confettiBrickPrefabs == null || confettiBrickPrefabs.Length == 0) return;
-        
-        GameObject randomPrefab = confettiBrickPrefabs[Random.Range(0, confettiBrickPrefabs.Length)];
-        GameObject confetti = Instantiate(randomPrefab, spawnPosition, Random.rotation);
-        
-        confetti.name = $"Confetti_{activeConfetti.Count}";
-        confetti.transform.localScale = Vector3.one * confettiScale;
-        confetti.layer = LayerMask.NameToLayer("WinLose");
-        
-        foreach (Transform child in confetti.GetComponentsInChildren<Transform>())
+        var prefab = confettiBrickPrefabs[Random.Range(0, confettiBrickPrefabs.Length)];
+        GameObject confetti = null;
+        if (prefab != null)
         {
-            child.gameObject.layer = LayerMask.NameToLayer("WinLose");
+            confetti = Instantiate(prefab, this.transform);
         }
-        
+        else
+        {
+            confetti = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            confetti.transform.SetParent(this.transform, true);
+            confetti.transform.localScale = Vector3.one * confettiScale;
+        }
+        confetti.transform.position = spawnPosition;
+        confetti.transform.rotation = Random.rotation;
+        confetti.transform.localScale = Vector3.one * confettiScale;
+        confetti.SetActive(true);
+
         SetupConfettiPhysics(confetti, isLeftSide);
         ApplyRandomColor(confetti);
-        
+
         activeConfetti.Add(confetti);
         Destroy(confetti, confettiLifetime);
     }
@@ -150,23 +212,30 @@ public class WinPanelConfetti : MonoBehaviour
         rb.drag = confettiDrag;
         rb.angularDrag = confettiAngularDrag;
         rb.useGravity = true;
+        rb.velocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
 
+        // Create a gentler, more controlled initial velocity so confetti doesn't launch unrealistically high
         float horizontalDir = isLeftSide ? 1f : -1f;
-        Vector3 explosionDirection = new Vector3(
-            horizontalDir * Random.Range(0.6f, 1f),
-            Random.Range(0.8f, 1.2f),
-            Random.Range(-0.3f, 0.3f)
-        ).normalized;
 
-        rb.AddForce(explosionDirection * explosionForce + Vector3.up * explosionUpwardForce, ForceMode.Impulse);
-        
-        Vector3 randomTorque = new Vector3(
-            Random.Range(-torqueForce, torqueForce),
-            Random.Range(-torqueForce, torqueForce),
-            Random.Range(-torqueForce, torqueForce)
-        );
-        rb.AddTorque(randomTorque, ForceMode.Impulse);
+        // Limit upward velocity so pieces rise at most ~2 units initially (user requested max 2f)
+        float upwardVel = Random.Range(0.5f, 2f);
+
+        // Horizontal impulse scaled down to make the burst feel softer
+        float horizSpeed = horizontalDir * Random.Range(0.4f, 0.8f) * (explosionForce * 0.2f);
+        float lateralSpeed = Random.Range(-0.25f, 0.25f) * (explosionForce * 0.2f);
+
+        Vector3 initialVelocity = new Vector3(horizSpeed, upwardVel, lateralSpeed);
+
+        // Apply as a velocity change for predictable initial speeds (ignores mass)
+        rb.AddForce(initialVelocity, ForceMode.VelocityChange);
+
+        // Apply a mild random angular velocity (reduced torque for slower rotation)
+        Vector3 randomTorque = Random.insideUnitSphere * (torqueForce * 0.15f);
+        rb.AddTorque(randomTorque, ForceMode.VelocityChange);
     }
+
+    // Pooling removed — simplified spawn/destroy behavior
 
     private void ApplyRandomColor(GameObject confetti)
     {
@@ -194,14 +263,16 @@ public class WinPanelConfetti : MonoBehaviour
 
     private void CleanupConfetti()
     {
-        foreach (GameObject confetti in activeConfetti)
+        // Destroy all active confetti instances
+        for (int i = activeConfetti.Count - 1; i >= 0; i--)
         {
+            var confetti = activeConfetti[i];
             if (confetti != null)
             {
                 Destroy(confetti);
             }
+            activeConfetti.RemoveAt(i);
         }
-        activeConfetti.Clear();
     }
 
     void OnDisable()

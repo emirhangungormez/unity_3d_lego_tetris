@@ -41,6 +41,9 @@ public class CameraController : MonoBehaviour
     private Vector3 gridCenterOffset = Vector3.zero;
     [Header("Debug")]
     public bool debugLogGridCenter = false;
+    [Header("Control")]
+    [Tooltip("When false, user input for rotating/moving the camera is ignored. Useful to lock camera after win.")]
+    public bool allowInput = true;
 
     void Start()
     {
@@ -169,6 +172,7 @@ public class CameraController : MonoBehaviour
     #region Input Handling
     void HandleInput()
     {
+        if (!allowInput) return;
         Vector2 input = GetRotationInput();
         if (input != Vector2.zero)
         {

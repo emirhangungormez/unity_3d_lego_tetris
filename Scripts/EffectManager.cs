@@ -31,7 +31,6 @@ public class EffectManager : MonoBehaviour
     
     private Queue<GameObject> particlePool = new();
     private const int PoolSize = 50;
-    private Dictionary<LevelManager.BrickColor, Material> particleMaterialCache = new();
 
     void Start()
     {
@@ -105,23 +104,7 @@ public class EffectManager : MonoBehaviour
     private void ApplyParticleTexture(GameObject particle, LevelManager.BrickColor color)
     {
         if (particle == null || levelManager == null) return;
-
-        if (!particleMaterialCache.TryGetValue(color, out var cachedMat))
-        {
-            var colorSettings = levelManager.GetColorSettings(color);
-            if (colorSettings == null) return;
-
-            cachedMat = new Material(Shader.Find("Standard"));
-            cachedMat.mainTextureScale = colorSettings.tiling;
-            cachedMat.mainTextureOffset = colorSettings.offset;
-            particleMaterialCache[color] = cachedMat;
-        }
-
-        foreach (var renderer in particle.GetComponentsInChildren<Renderer>())
-        {
-            if (renderer != null) 
-                renderer.material = cachedMat;
-        }
+        levelManager.ApplyBrickTexture(particle, color);
     }
     
     public IEnumerator SendParticleToUI(LevelManager.BrickColor color, Vector3 worldPosition, GameObject uiElement)

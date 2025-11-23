@@ -603,12 +603,12 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 305514712}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 665, y: -242, z: 0}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 8.68, y: 0, z: 3}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 784348959}
+  m_Father: {fileID: 963194228}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &308457779
 GameObject:
@@ -858,6 +858,7 @@ MonoBehaviour:
   gridManager: {fileID: 1889893170}
   effectManager: {fileID: 1328891073}
   levelManager: {fileID: 372562434}
+  confettiRunner: {fileID: 1870314052}
   brickPrefabs:
   - {fileID: 5962922540469551611, guid: b8d0739f6dcd73a4ba78e27fe6c84c5e, type: 3}
   - {fileID: 5962922540469551611, guid: c50fe5c758602fc4994c1b64f5ed69f0, type: 3}
@@ -938,14 +939,10 @@ MonoBehaviour:
   levels:
   - levelNumber: 0
     difficulty: 1
-    gridSize: {x: 8, y: 8}
+    gridSize: {x: 4, y: 4}
     brickColorCounts:
     - color: 0
       count: 6
-    - color: 1
-      count: 6
-    - color: 4
-      count: 3
     levelTime: 120
     maxLayers: 10
     allowedBrickNames:
@@ -980,6 +977,10 @@ MonoBehaviour:
   - {fileID: 21300000, guid: 2c4ed03c401bb0e43925548e2bec2a83, type: 3}
   numberSpacing: 50
   doubleDigitOffset: 50
+  levelStateImage: {fileID: 2022421589}
+  easySprite: {fileID: 21300000, guid: ac81098f3dec9024f81a411e06fd34cb, type: 3}
+  mediumSprite: {fileID: 21300000, guid: d789b9344ec62d9489d251b655303855, type: 3}
+  hardSprite: {fileID: 21300000, guid: 73012afe3603fec438a38b1519c70f6a, type: 3}
   brickCountUIPrefab: {fileID: 308457779}
   brickCountUISpacing: 80
   timerPulseDuration: 1
@@ -1659,9 +1660,7 @@ Transform:
   m_LocalPosition: {x: 15.498779, y: 239.55286, z: -0.094563164}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 2068257716}
-  - {fileID: 305514713}
+  m_Children: []
   m_Father: {fileID: 1247669551}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &784348960
@@ -1678,13 +1677,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   levelManager: {fileID: 0}
   confettiBrickPrefabs:
-  - {fileID: 5962922540469551611, guid: b8d0739f6dcd73a4ba78e27fe6c84c5e, type: 3}
   - {fileID: 5962922540469551611, guid: c50fe5c758602fc4994c1b64f5ed69f0, type: 3}
   - {fileID: 5962922540469551611, guid: 2816d6e4617efae47846b3069beae011, type: 3}
   - {fileID: 5962922540469551611, guid: 084ae0be29fe6244285bab0429612144, type: 3}
   - {fileID: 5962922540469551611, guid: 4673fc43a889b7a45ae9c63ec00307b1, type: 3}
   confettiPerSide: 25
   confettiScale: 0.25
+  confettiPoolSize: 100
   spawnHeight: 5
   spawnRatePerSecond: 20
   confettiLifetime: 5
@@ -1696,6 +1695,8 @@ MonoBehaviour:
   confettiAngularDrag: 0.2
   screenEdgeOffset: 0.05
   screenHeightPosition: 0.3
+  leftAnchor: {fileID: 0}
+  rightAnchor: {fileID: 0}
 --- !u!1 &913577659
 GameObject:
   m_ObjectHideFlags: 0
@@ -2039,7 +2040,9 @@ Transform:
   m_LocalPosition: {x: 4, y: 13.45, z: -11}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 1
-  m_Children: []
+  m_Children:
+  - {fileID: 2068257716}
+  - {fileID: 305514713}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 25, y: -45, z: 0}
 --- !u!114 &963194229
@@ -2070,6 +2073,7 @@ MonoBehaviour:
   imageRotation: {x: 0, y: 0, z: 90}
   maintainAspectRatio: 1
   debugLogGridCenter: 0
+  allowInput: 1
 --- !u!1 &1004358307
 GameObject:
   m_ObjectHideFlags: 0
@@ -2176,7 +2180,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   joystick: {fileID: 495137185}
   gameManager: {fileID: 318091549}
-  mainCamera: {fileID: 0}
+  mainCamera: {fileID: 963194227}
   deadzone: 0.2
   maxRepeatRate: 10
   minRepeatRate: 1.5
@@ -2754,6 +2758,7 @@ MonoBehaviour:
   confettiBrickPrefabs: []
   confettiPerSide: 25
   confettiScale: 0.25
+  confettiPoolSize: 100
   spawnHeight: 5
   spawnRatePerSecond: 20
   confettiLifetime: 5
@@ -2765,6 +2770,8 @@ MonoBehaviour:
   confettiAngularDrag: 0.2
   screenEdgeOffset: 0.05
   screenHeightPosition: 0.3
+  leftAnchor: {fileID: 0}
+  rightAnchor: {fileID: 0}
 --- !u!1 &1322960746
 GameObject:
   m_ObjectHideFlags: 0
@@ -2926,7 +2933,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b9c22884244b4b842bb40443c94869d1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  gameManager: {fileID: 0}
+  gameManager: {fileID: 318091549}
   levelManager: {fileID: 372562434}
   brickParticlePrefab: {fileID: 5962922540469551611, guid: 6dc53a7e2fa3796429dc3c2883f30207, type: 3}
   minParticles: 1
@@ -3720,6 +3727,69 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1815511741}
   m_CullTransparentMesh: 1
+--- !u!1 &1870314051
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1870314053}
+  - component: {fileID: 1870314052}
+  m_Layer: 6
+  m_Name: Confetti
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1870314052
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1870314051}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2dbe1540637b1de4e956e2fe3930f219, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  levelManager: {fileID: 372562434}
+  confettiBrickPrefabs:
+  - {fileID: 5962922540469551611, guid: b8d0739f6dcd73a4ba78e27fe6c84c5e, type: 3}
+  confettiPerSide: 30
+  confettiScale: 0.5
+  confettiPoolSize: 100
+  spawnHeight: 1
+  spawnRatePerSecond: 20
+  confettiLifetime: 5
+  explosionForce: 15
+  explosionUpwardForce: 10
+  torqueForce: 15
+  confettiMass: 0.1
+  confettiDrag: 0.3
+  confettiAngularDrag: 0.2
+  screenEdgeOffset: 0.05
+  screenHeightPosition: 0.3
+  leftAnchor: {fileID: 2068257716}
+  rightAnchor: {fileID: 305514713}
+--- !u!4 &1870314053
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1870314051}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 10.497944, y: 15.906176, z: -16.795383}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1887562893
 GameObject:
   m_ObjectHideFlags: 0
@@ -4280,12 +4350,12 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2068257715}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -688, y: -242, z: 0}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: -8.64, y: 0, z: 3}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 784348959}
+  m_Father: {fileID: 963194228}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &2129519573
 GameObject:
@@ -4434,3 +4504,4 @@ SceneRoots:
   - {fileID: 1757287309}
   - {fileID: 372562435}
   - {fileID: 1027780582}
+  - {fileID: 1870314053}

@@ -47,7 +47,9 @@ public class Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IPoint
         baseRect = GetComponent<RectTransform>();
         canvas = GetComponentInParent<Canvas>();
         if (canvas == null)
-            ;
+        {
+            // No parent canvas found; some functionality may be limited but continue.
+        }
 
         Vector2 center = new Vector2(0.5f, 0.5f);
         background.pivot = center;
