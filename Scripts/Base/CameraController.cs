@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using System.Collections.Generic;
 
 public class CameraController : MonoBehaviour
 {
@@ -22,7 +23,8 @@ public class CameraController : MonoBehaviour
     public Quaternion defaultRotation = Quaternion.Euler(11.5f, -43.9f, 0f);
     
     [Header("Overlay Image")]
-    public Sprite overlayImage;
+    [Tooltip("Kullanılacak background sprite'ları. Menu'deki ile aynı sırada olmalı.")]
+    public List<Sprite> backgroundSprites = new List<Sprite>();
     public float imageDistance = 2f;
     public Vector3 imageScale = new Vector3(0.3f, 0.3f, 0.3f);
     public Vector3 imageRotation = new Vector3(0f, 0f, 90f);
@@ -105,31 +107,49 @@ public class CameraController : MonoBehaviour
     #region Overlay Image
     void CreateOverlayImage()
     {
-        imageCanvas = new GameObject("OverlayCanvas").AddComponent<Canvas>();
-        imageCanvas.transform.SetParent(transform);
-        imageCanvas.renderMode = RenderMode.WorldSpace;
-        imageCanvas.gameObject.AddComponent<CanvasRenderer>();
-        
-        imageObject = new GameObject("OverlayImage");
-        imageObject.transform.SetParent(imageCanvas.transform);
-        imageRectTransform = imageObject.AddComponent<RectTransform>();
-        imageRectTransform.pivot = imageRectTransform.anchorMin = imageRectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-        imageRectTransform.anchoredPosition = Vector2.zero;
-        imageRectTransform.sizeDelta = new Vector2(100f, 100f);
-        
-        imageComponent = imageObject.AddComponent<Image>();
-        if (overlayImage)
+        // overlay yaratımını ortak helper'a devrediyoruz
+        Camera cam = Camera.main;
+        GameObject canvasObj = OverlayCreator.CreateOverlay(cam, out imageComponent, imageDistance, imageScale, imageRotation, maintainAspectRatio);
+        if (canvasObj != null)
         {
-            imageComponent.sprite = overlayImage;
-            imageComponent.preserveAspect = maintainAspectRatio;
+            imageCanvas = canvasObj.GetComponent<Canvas>();
+            imageObject = imageComponent != null ? imageComponent.gameObject : null;
+            imageRectTransform = imageObject != null ? imageObject.GetComponent<RectTransform>() : null;
+        }
+
+        // GameSettings'den kayıtlı background'u otomatik uygula
+        ApplyBackgroundFromSettings();
+
+        currentImageScale = imageScale;
+        currentImageRotation = imageRotation;
+    }
+    
+    /// <summary>
+    /// GameSettings'den kayıtlı background'u uygular (otomatik)
+    /// </summary>
+    void ApplyBackgroundFromSettings()
+    {
+        Debug.Log($"CameraController: ApplyBackgroundFromSettings çağrıldı. Index: {GameSettings.BackgroundIndex}, Liste sayısı: {backgroundSprites?.Count ?? 0}");
+        
+        if (backgroundSprites == null || backgroundSprites.Count == 0)
+        {
+            imageComponent.color = new Color(0.2f, 0.2f, 0.2f, 1f);
+            Debug.LogWarning("CameraController: backgroundSprites listesi boş! Inspector'dan sprite ekleyin.");
+            return;
+        }
+        
+        int index = GameSettings.BackgroundIndex;
+        if (index >= 0 && index < backgroundSprites.Count && backgroundSprites[index] != null)
+        {
+            imageComponent.sprite = backgroundSprites[index];
+            Debug.Log($"CameraController: Background sprite atandı: {backgroundSprites[index].name}");
         }
         else
         {
-            imageComponent.color = new Color(1f, 0.5f, 0.5f, 0.8f);
+            // Fallback: ilk sprite
+            imageComponent.sprite = backgroundSprites[0];
+            Debug.Log($"CameraController: Fallback sprite kullanıldı: {backgroundSprites[0]?.name}");
         }
-        
-        currentImageScale = imageScale;
-        currentImageRotation = imageRotation;
     }
     
     void ForceUpdateImageTransform()
@@ -303,7 +323,6 @@ public class CameraController : MonoBehaviour
     
     public void SetOverlayImage(Sprite newImage)
     {
-        overlayImage = newImage;
         if (imageComponent)
         {
             imageComponent.sprite = newImage;

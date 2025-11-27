@@ -16,10 +16,6 @@ public class GameManager : MonoBehaviour
         public GameObject winPanel;
         public GameObject losePanel; 
         public Text loseReasonText;
-        
-        [Header("Pause UI")]
-        public Button pauseButton;
-        public Text pauseText;
     }
     
     [System.Serializable]
@@ -30,13 +26,6 @@ public class GameManager : MonoBehaviour
         public int comboMultiplier = 2;
     }
     
-    [System.Serializable]
-    public class PauseSettings
-    {
-        public Sprite pauseSprite;
-        public Sprite continueSprite;
-        public int maxPauseChances = 3;
-    }
     
     [Header("Core References")]
     public GridManager gridManager;
@@ -55,13 +44,30 @@ public class GameManager : MonoBehaviour
     [Header("Score Settings")]
     public ScoreSettings scoreSettings = new ScoreSettings();
     
-    [Header("Pause Settings")]
-    public PauseSettings pauseSettings = new PauseSettings();
+    [Header("Game UI Controls")]
+    [Tooltip("Settings panel to show/hide")]
+    public GameObject settingsPanel;
+    [Tooltip("Text showing current speed (1X or 2X)")]
+    public Text speedToggleText;
+    
+    // Pause settings removed — pause UI remains but functionality disabled.
     
     [Header("Effect Timing")]
     public float layerClearDelay = 0.3f;
-    public float brickFallDuration = 0.6f;
-    public float autoFallDelay = 0.3f;
+    // Slightly faster brick fall for snappier gameplay
+    public float brickFallDuration = 0.45f;
+    public float autoFallDelay = 0.25f;
+
+    // Fall speed multiplier (1 = normal, 2 = double). Togglable via UI button.
+    private float fallSpeedMultiplier = 1f;
+    public bool IsDoubleFallSpeed => fallSpeedMultiplier > 1f;
+
+    [Header("Spawn Settings")]
+    [Tooltip("If true, bricks will spawn at the Transform assigned to Custom Spawn Point. If false, they spawn randomly on top of the grid.")]
+    public bool useCustomSpawnPoint = false;
+    public Transform customSpawnPoint;
+    [Tooltip("Spawn Y height when not using a custom spawn point.")]
+    public float spawnY = 30f;
     
     [HideInInspector] public List<GameObject> landedBricks = new List<GameObject>();
     
@@ -71,11 +77,12 @@ public class GameManager : MonoBehaviour
     private BoxCollider currentBrickCollider;
     private Vector2Int currentBrickGridPos;
     private LevelManager.BrickColor currentBrickColor;
-    private float currentBrickFallSpeed = 3f;
+    // Increase the in-air fall speed so bricks feel faster
+    private float currentBrickFallSpeed = 4f;
     private float nextFallTime;
     
-    private bool isPaused, isGameActive;
-    private int currentPauseChances, currentGold, comboCount;
+    private bool isGameActive;
+    private int currentGold, comboCount;
     
     private static readonly List<GameObject> cachedAvailableBricks = new();
     private static readonly List<GameObject> cachedSuitableBricks = new();
@@ -89,7 +96,6 @@ public class GameManager : MonoBehaviour
     private float ghostBaseAlpha = 0.35f;
 
     public bool IsGameActive => isGameActive;
-    public bool IsPaused => isPaused;
     public GameObject CurrentBrick => currentBrick;
 
     void Start()
@@ -102,7 +108,6 @@ public class GameManager : MonoBehaviour
         isGameActive = true;
         currentGold = 0;
         comboCount = 0;
-        currentPauseChances = pauseSettings.maxPauseChances;
         currentBrick = null;
         landedBricks.Clear();
         ghostMaterialCache.Clear();
@@ -119,7 +124,6 @@ public class GameManager : MonoBehaviour
         if (levelManager != null)
             levelManager.InitializeLevel();
 
-        UpdatePauseUI();
         UpdateGoldUI();
 
         var camCtrl = Camera.main != null ? Camera.main.GetComponent<CameraController>() : null;
@@ -136,6 +140,9 @@ public class GameManager : MonoBehaviour
             if (panelConfetti != null)
                 panelConfetti.StopConfetti();
         }
+
+        // Ensure speed toggle UI shows correct label at start
+        UpdateSpeedToggleUI();
 
         SpawnNewBrick();
     }
@@ -157,28 +164,72 @@ public class GameManager : MonoBehaviour
     {
         if (element == null) yield break;
 
-        Vector3 originalScale = element.localScale;
+        // Capture original scale safely (object might still be destroyed afterwards)
+        Vector3 originalScale;
+        RectTransform rectTransform = element as RectTransform;
+        Vector2 originalPivot = Vector2.one * 0.5f;
+        
+        try { 
+            originalScale = element.localScale;
+            // Save original pivot and temporarily center it for proper scaling
+            if (rectTransform != null)
+            {
+                originalPivot = rectTransform.pivot;
+                // Calculate position offset to keep visual position same when changing pivot
+                Vector2 size = rectTransform.rect.size;
+                Vector2 pivotDiff = new Vector2(0.5f, 0.5f) - originalPivot;
+                Vector3 posOffset = new Vector3(pivotDiff.x * size.x * element.localScale.x, 
+                                                 pivotDiff.y * size.y * element.localScale.y, 0f);
+                rectTransform.pivot = new Vector2(0.5f, 0.5f);
+                rectTransform.localPosition += posOffset;
+            }
+        }
+        catch { yield break; }
+        
         Vector3 scaledUp = originalScale * targetScale;
 
+        float halfDuration = Mathf.Max(0.0001f, uiScaleDuration / 2f);
         float elapsed = 0f;
-        while (elapsed < uiScaleDuration / 2f)
+        while (elapsed < halfDuration)
         {
+            if (element == null) yield break;
             elapsed += Time.deltaTime;
-            float t = elapsed / (uiScaleDuration / 2f);
-            element.localScale = Vector3.Lerp(originalScale, scaledUp, t);
+            float t = elapsed / halfDuration;
+            try { element.localScale = Vector3.Lerp(originalScale, scaledUp, t); }
+            catch { yield break; }
             yield return null;
         }
 
         elapsed = 0f;
-        while (elapsed < uiScaleDuration / 2f)
+        while (elapsed < halfDuration)
         {
+            if (element == null) yield break;
             elapsed += Time.deltaTime;
-            float t = elapsed / (uiScaleDuration / 2f);
-            element.localScale = Vector3.Lerp(scaledUp, originalScale, t);
+            float t = elapsed / halfDuration;
+            try { element.localScale = Vector3.Lerp(scaledUp, originalScale, t); }
+            catch { yield break; }
             yield return null;
         }
 
-        element.localScale = originalScale;
+        if (element == null) yield break;
+        
+        // Restore original pivot and position
+        try
+        {
+            element.localScale = originalScale;
+            if (rectTransform != null)
+            {
+                Vector2 size = rectTransform.rect.size;
+                Vector2 pivotDiff = originalPivot - new Vector2(0.5f, 0.5f);
+                Vector3 posOffset = new Vector3(pivotDiff.x * size.x * element.localScale.x, 
+                                                 pivotDiff.y * size.y * element.localScale.y, 0f);
+                rectTransform.pivot = originalPivot;
+                rectTransform.localPosition += posOffset;
+            }
+        }
+        catch { }
+        try { element.localScale = originalScale; }
+        catch { yield break; }
     }
     
     void UpdateGoldUI()
@@ -244,21 +295,7 @@ public class GameManager : MonoBehaviour
         if (ui.loseReasonText != null) ui.loseReasonText.text = reason;
     }
     
-    public void OnPauseButtonClicked()
-    {
-        if (currentPauseChances <= 0 && !isPaused) return;
-        
-        if (!isPaused)
-        {
-            isPaused = true;
-            if (currentPauseChances > 0) currentPauseChances--;
-        }
-        else
-        {
-            isPaused = false;
-        }
-        UpdatePauseUI();
-    }
+    // Pause button handling removed. Pause UI should be disabled or repurposed in the scene.
     
     public void SetGameActive(bool active)
     {
@@ -276,19 +313,68 @@ public class GameManager : MonoBehaviour
         if (levelManager != null)
             levelManager.RestartLevel();
     }
-    
-    void UpdatePauseUI()
+
+    // Toggle double fall speed (only affects bricks fall speed and fall coroutines)
+    public void ToggleDoubleFallSpeed()
     {
-        if (ui.pauseButton != null)
-            ui.pauseButton.image.sprite = isPaused ? pauseSettings.continueSprite : pauseSettings.pauseSprite;
-        
-        if (ui.pauseText != null)
-            ui.pauseText.text = currentPauseChances.ToString();
+        if (fallSpeedMultiplier > 1f)
+            fallSpeedMultiplier = 1f;
+        else
+            fallSpeedMultiplier = 2f;
+
+        UpdateSpeedToggleUI();
+        Debug.Log($"ToggleDoubleFallSpeed -> multiplier={fallSpeedMultiplier}");
     }
+    
+    void UpdateSpeedToggleUI()
+    {
+        if (speedToggleText != null)
+        {
+            // Show the action the button will perform: when currently 2x, show "1X" (press to go to 1x),
+            // when currently 1x, show "2X" (press to go to 2x).
+            speedToggleText.text = fallSpeedMultiplier > 1f ? "1X" : "2X";
+        }
+    }
+    
+    #region Settings Panel
+    
+    /// <summary>
+    /// Opens the settings panel. Assign to settings button OnClick.
+    /// </summary>
+    public void OpenSettings()
+    {
+        if (settingsPanel != null)
+            settingsPanel.SetActive(true);
+    }
+    
+    /// <summary>
+    /// Closes the settings panel. Assign to close button OnClick.
+    /// </summary>
+    public void CloseSettings()
+    {
+        if (settingsPanel != null)
+            settingsPanel.SetActive(false);
+    }
+    
+    /// <summary>
+    /// Toggles settings panel visibility.
+    /// </summary>
+    public void ToggleSettings()
+    {
+        if (settingsPanel != null)
+            settingsPanel.SetActive(!settingsPanel.activeSelf);
+    }
+    
+    #endregion
+    
+    // Get current fall speed multiplier
+    public float FallSpeedMultiplier => fallSpeedMultiplier;
+    
+    // UpdatePauseUI removed along with pause functionality.
     
     void SpawnNewBrick()
     {
-        if (!isGameActive || isPaused) return;
+        if (!isGameActive) return;
         
         int currentHighestLayer = gridManager.GetHighestLayer();
         if (currentHighestLayer >= levelManager.CurrentLevel.maxLayers)
@@ -342,27 +428,50 @@ public class GameManager : MonoBehaviour
     void SpawnBrick(GameObject brickPrefab, LevelManager.BrickColor color)
     {
         Vector2Int brickSize = gridManager.GetBrickSize(brickPrefab);
-        Vector2Int spawnPos = new Vector2Int(
-            Random.Range(0, gridManager.GridWidth - brickSize.x + 1),
-            Random.Range(0, gridManager.GridHeight - brickSize.y + 1)
-        );
+            Vector2Int spawnPos;
+
+            if (useCustomSpawnPoint && customSpawnPoint != null)
+            {
+                // Derive grid position from custom world point so grid logic remains consistent
+                Vector3 cp = customSpawnPoint.position;
+                spawnPos = gridManager.WorldToGridPosition(new Vector3(cp.x, 0f, cp.z));
+            }
+            else
+            {
+                spawnPos = new Vector2Int(
+                    Random.Range(0, gridManager.GridWidth - brickSize.x + 1),
+                    Random.Range(0, gridManager.GridHeight - brickSize.y + 1)
+                );
+            }
         
         currentBrickGridPos = spawnPos;
         currentBrickColor = color;
         
         Vector3 worldPos = gridManager.GetGridPosition(spawnPos, brickSize);
-        worldPos.y = 20f;
+            if (useCustomSpawnPoint && customSpawnPoint != null)
+            {
+                // Use exact custom spawn transform position (preserve Y from transform)
+                worldPos = customSpawnPoint.position;
+            }
+            else
+            {
+                worldPos.y = spawnY;
+            }
 
         currentBrick = Instantiate(brickPrefab, worldPos, Quaternion.identity);
         currentBrick.name = brickPrefab.name + "_Current";
         currentBrickCollider = currentBrick.GetComponent<BoxCollider>();
 
+        // Ensure visual effects component exists for animations
+        var vfx = currentBrick.GetComponent<VisualBrickEffects>();
+        if (vfx == null) vfx = currentBrick.AddComponent<VisualBrickEffects>();
+
         levelManager.ApplyBrickTexture(currentBrick, color);
 
         Vector3 spawnCenter = gridManager.GetGridPosition(spawnPos, brickSize);
-        float spawnY = currentBrick.transform.position.y;
+        float preservedY = currentBrick.transform.position.y;
         AlignBrickToGridXZ(currentBrick, spawnCenter);
-        Vector3 sp = currentBrick.transform.position; sp.y = spawnY; currentBrick.transform.position = sp;
+        Vector3 sp = currentBrick.transform.position; sp.y = preservedY; currentBrick.transform.position = sp;
 
         CreateGhostPreview(brickPrefab, spawnPos, brickSize);
         nextFallTime = Time.time;
@@ -406,9 +515,9 @@ public class GameManager : MonoBehaviour
     
     void Update()
     {
-        if (!isGameActive || isPaused) return;
+        if (!isGameActive) return;
         if (currentBrick == null) return;
-        
+
         UpdateGhostPreviewPosition();
 
         HandleBrickFalling();
@@ -427,7 +536,8 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        float fallAmount = currentBrickFallSpeed * Time.deltaTime;
+        // Apply multiplier to only the bricks' fall speed (current falling brick)
+        float fallAmount = currentBrickFallSpeed * fallSpeedMultiplier * Time.deltaTime;
         currentBrick.transform.position += Vector3.down * fallAmount;
     }
     
@@ -509,12 +619,23 @@ public class GameManager : MonoBehaviour
 
         // Mevcut durumu kaydet
         Vector2Int oldSize = gridManager.GetBrickSize(currentBrick);
+        // Disable rotation for square bricks of size 1x1 and 2x2
+        if (oldSize.x == oldSize.y && (oldSize.x == 1 || oldSize.x == 2))
+        {
+            Debug.Log("Rotation disabled for 1x1 and 2x2 square bricks.");
+            return;
+        }
         Vector2Int oldGridPos = currentBrickGridPos;
         float currentY = currentBrick.transform.position.y;
 
         Debug.Log($"Before rotation - Grid: ({oldGridPos.x},{oldGridPos.y}), Size: {oldSize.x}x{oldSize.y}");
 
-        // Brick'i döndür
+        // Prepare visual to preserve appearance during instant root rotation
+        int dir = 1; // clockwise 90
+        var vfx = currentBrick.GetComponent<VisualBrickEffects>();
+        if (vfx != null) vfx.PrepareForInstantRootRotation(dir);
+
+        // Brick'i döndür (root transform - used for grid logic)
         currentBrick.transform.Rotate(0, 90, 0);
         
         // Yeni boyutu al
@@ -537,12 +658,24 @@ public class GameManager : MonoBehaviour
             currentBrickGridPos = newGridPos;
             ForceAlignBrickToGrid(currentY);
             Debug.Log($"Rotation successful - Final position: {currentBrickGridPos}");
+            // After root moved to final position, play visual rotation (rotation-only, no positional shift)
+            if (vfx != null)
+            {
+                vfx.PlayRotateVisual();
+            }
         }
         else
         {
-            // Geçerli değilse, brick'i geri döndür
+            // Geçerli değilse, brick'i geri döndür and reset visual
             Debug.LogWarning("Invalid position after rotation, reverting...");
             currentBrick.transform.Rotate(0, -90, 0);
+            if (vfx != null)
+            {
+                // Reset visual immediately (no animation)
+                vfx.PrepareForInstantRootRotation(0);
+                var visualTf = currentBrick.transform.Find("_Visual");
+                if (visualTf != null) visualTf.localRotation = Quaternion.identity;
+            }
         }
     }
 
@@ -599,7 +732,11 @@ public class GameManager : MonoBehaviour
         Vector3 landedPos = currentBrick.transform.position; landedPos.y = targetHeight; currentBrick.transform.position = landedPos;
         
         gridManager.PlaceBrick(currentBrickGridPos, brickSize, currentBrick, currentBrickColor);
-        
+
+        // Play snap visual if available (small up + down + vibrate) to emphasize tactile placement
+        var landedVfx = currentBrick.GetComponent<VisualBrickEffects>();
+        if (landedVfx != null) landedVfx.PlaySnapVisual();
+
         landedBricks.Add(currentBrick);
         currentBrick.name = currentBrick.name + $"_Landed_{landedBricks.Count}";
 
@@ -610,11 +747,12 @@ public class GameManager : MonoBehaviour
         
         AddGold(scoreSettings.goldPerBrick);
         
+        // Clear currentBrick reference so spawn logic can create next one while placed brick animates
         currentBrick = null;
         
         CheckForMatchingLines();
         
-        if (!isPaused) Invoke(nameof(SpawnNewBrick), autoFallDelay);
+        if (isGameActive) Invoke(nameof(SpawnNewBrick), autoFallDelay);
     }
     
     void ClearCurrentBrick()
@@ -753,7 +891,8 @@ public class GameManager : MonoBehaviour
         if (AudioManager.Instance != null)
             AudioManager.Instance.PlayLayerCompleteExplosion();
         
-        HashSet<int> affectedLayers = new HashSet<int>();
+        // Determine the lowest layer being removed so we know from which layer to start collapsing
+        int lowestRemovedLayer = int.MaxValue;
         
         foreach (var brick in bricksToDestroy)
         {
@@ -761,7 +900,7 @@ public class GameManager : MonoBehaviour
             {
                 var gridPos = gridManager.GetBrickGridPosition(brick);
                 int brickLayer = gridManager.GetLayerAtBrickPosition(brick, gridPos);
-                affectedLayers.Add(brickLayer);
+                if (brickLayer < lowestRemovedLayer) lowestRemovedLayer = brickLayer;
                 
                 Vector3 brickPosition = brick.transform.position;
                 
@@ -788,28 +927,80 @@ public class GameManager : MonoBehaviour
         
         yield return new WaitForSeconds(0.3f);
         
-        var sortedLayers = new List<int>(affectedLayers);
-        sortedLayers.Sort();
-        
-        foreach (int layer in sortedLayers)
+        // Collapse all bricks above the lowest removed layer
+        if (lowestRemovedLayer < int.MaxValue)
         {
-            List<GameObject> bricksToFall = gridManager.GetBricksAboveLayer(layer);
+            // Gather all bricks that need to fall (from layers above the removed one)
+            List<GameObject> bricksToFall = gridManager.GetBricksAboveLayer(lowestRemovedLayer - 1);
             
+            // Sort by current layer ascending so lower bricks settle first
+            bricksToFall.Sort((a, b) => {
+                int layerA = gridManager.GetBrickLayer(a);
+                int layerB = gridManager.GetBrickLayer(b);
+                return layerA.CompareTo(layerB);
+            });
+            
+            // Clear grid data for all falling bricks first so they don't block each other
             foreach (var brick in bricksToFall)
             {
                 if (brick != null)
+                    gridManager.ClearBrickFromGrid(brick);
+            }
+            
+            // Calculate target heights and re-place bricks in grid BEFORE visual animation
+            // This ensures grid data is immediately correct for new brick placement
+            Dictionary<GameObject, float> targetHeights = new Dictionary<GameObject, float>();
+            foreach (var brick in bricksToFall)
+            {
+                if (brick == null) continue;
+                Vector2Int gridPos = gridManager.GetBrickGridPositionCached(brick);
+                Vector2Int brickSize = gridManager.GetBrickSize(brick);
+                LevelManager.BrickColor brickColor = gridManager.GetBrickColorCached(brick);
+                
+                // Calculate height based on current grid state (lower bricks already placed)
+                float newHeight = gridManager.GetRequiredHeight(gridPos, brickSize);
+                targetHeights[brick] = newHeight;
+                
+                // Immediately re-place in grid so next brick calculations are correct
+                gridManager.PlaceBrick(gridPos, brickSize, brick, brickColor);
+            }
+            
+            // Now animate all bricks falling to their pre-calculated heights in parallel
+            foreach (var brick in bricksToFall)
+            {
+                if (brick != null && targetHeights.ContainsKey(brick))
                 {
-                    StartCoroutine(MoveBrickDown(brick, layer));
+                    StartCoroutine(AnimateBrickFall(brick, targetHeights[brick]));
                 }
             }
-        }
-        
-        if (sortedLayers.Count > 0)
-        {
-            yield return new WaitForSeconds(brickFallDuration);
+            
+            // Wait for visual animation to complete
+            yield return new WaitForSeconds(Mathf.Max(0.01f, brickFallDuration / fallSpeedMultiplier));
             if (AudioManager.Instance != null)
                 AudioManager.Instance.PlayAllBricksSettled();
         }
+    }
+    
+    // Simple animation coroutine - just moves brick visually, grid data already updated
+    IEnumerator AnimateBrickFall(GameObject brick, float targetHeight)
+    {
+        if (brick == null) yield break;
+        
+        var startPos = brick.transform.position;
+        var endPos = new Vector3(startPos.x, targetHeight, startPos.z);
+        
+        float elapsed = 0f;
+        float effectiveDuration = Mathf.Max(0.01f, brickFallDuration / fallSpeedMultiplier);
+        while (elapsed < effectiveDuration && brick != null)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / effectiveDuration;
+            brick.transform.position = Vector3.Lerp(startPos, endPos, t);
+            yield return null;
+        }
+        
+        if (brick != null)
+            brick.transform.position = endPos;
     }
     
     IEnumerator MoveBrickDown(GameObject brick, int removedLayer)
@@ -821,10 +1012,11 @@ public class GameManager : MonoBehaviour
         var endPos = new Vector3(startPos.x, newHeight, startPos.z);
         
         float elapsed = 0f;
-        while (elapsed < brickFallDuration && brick != null)
+        float effectiveDuration = Mathf.Max(0.01f, brickFallDuration / fallSpeedMultiplier);
+        while (elapsed < effectiveDuration && brick != null)
         {
             elapsed += Time.deltaTime;
-            float t = elapsed / brickFallDuration;
+            float t = elapsed / effectiveDuration;
             brick.transform.position = Vector3.Lerp(startPos, endPos, t);
             yield return null;
         }
@@ -833,6 +1025,39 @@ public class GameManager : MonoBehaviour
         {
             brick.transform.position = endPos;
             gridManager.UpdateBrickPosition(brick);
+        }
+    }
+    
+    // Coroutine that moves a brick down visually then re-registers it in the grid at the correct layer
+    IEnumerator MoveBrickDownAndReplace(GameObject brick)
+    {
+        if (brick == null) yield break;
+        
+        // Get brick's grid position (X/Y) — this doesn't change, only layer changes
+        Vector2Int gridPos = gridManager.GetBrickGridPositionCached(brick);
+        Vector2Int brickSize = gridManager.GetBrickSize(brick);
+        LevelManager.BrickColor brickColor = gridManager.GetBrickColorCached(brick);
+        
+        var startPos = brick.transform.position;
+        // Calculate target height based on what's currently in the grid (brick was cleared, so it finds correct layer)
+        float newHeight = gridManager.GetRequiredHeight(gridPos, brickSize);
+        var endPos = new Vector3(startPos.x, newHeight, startPos.z);
+        
+        float elapsed = 0f;
+        float effectiveDuration = Mathf.Max(0.01f, brickFallDuration / fallSpeedMultiplier);
+        while (elapsed < effectiveDuration && brick != null)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / effectiveDuration;
+            brick.transform.position = Vector3.Lerp(startPos, endPos, t);
+            yield return null;
+        }
+        
+        if (brick != null)
+        {
+            brick.transform.position = endPos;
+            // Re-place brick in grid at the new correct layer
+            gridManager.PlaceBrick(gridPos, brickSize, brick, brickColor);
         }
     }
     
@@ -866,12 +1091,15 @@ public class GameManager : MonoBehaviour
             if (renderer == null) continue;
             
             var origMat = renderer.material;
-            if (!ghostMaterialCache.TryGetValue(origMat, out var cachedMat))
-            {
-                cachedMat = new Material(origMat);
-                Color c = cachedMat.color;
-                c.a = ghostBaseAlpha;
-                cachedMat.color = c;
+                if (!ghostMaterialCache.TryGetValue(origMat, out var cachedMat))
+                {
+                    cachedMat = new Material(origMat);
+                    // Make ghost silhouettes white with configured alpha
+                    Color c = Color.white;
+                    c.a = ghostBaseAlpha;
+                    cachedMat.color = c;
+                    // Force a plain white main texture so tint becomes pure white silhouette
+                    cachedMat.mainTexture = Texture2D.whiteTexture;
                 cachedMat.SetFloat("_Mode", 3);
                 cachedMat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
                 cachedMat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);

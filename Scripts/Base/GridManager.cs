@@ -283,6 +283,71 @@ public class GridManager : MonoBehaviour
         RecalculateHighestLayer();
     }
     
+    // Clears brick from grid cells but keeps the cached position/color so it can be re-placed later
+    // Used during layer collapse so multiple bricks can be cleared then re-placed in order
+    private Dictionary<GameObject, Vector3Int> cachedBrickPositions = new Dictionary<GameObject, Vector3Int>();
+    private Dictionary<GameObject, LevelManager.BrickColor> cachedBrickColors = new Dictionary<GameObject, LevelManager.BrickColor>();
+    
+    public void ClearBrickFromGrid(GameObject brick)
+    {
+        if (!brickPositions.ContainsKey(brick)) return;
+        
+        // Cache position and color before clearing
+        cachedBrickPositions[brick] = brickPositions[brick];
+        cachedBrickColors[brick] = GetBrickColor(brick);
+        
+        for (int x = 0; x < GridWidth; x++)
+        {
+            for (int y = 0; y < GridHeight; y++)
+            {
+                for (int layer = 0; layer <= currentHighestLayer; layer++)
+                {
+                    if (gridCells[x, y, layer] == brick)
+                    {
+                        gridCells[x, y, layer] = null;
+                        gridCellColors[x, y, layer] = default;
+                    }
+                }
+            }
+        }
+        
+        brickPositions.Remove(brick);
+        RecalculateHighestLayer();
+    }
+    
+    public Vector2Int GetBrickGridPositionCached(GameObject brick)
+    {
+        if (brickPositions.ContainsKey(brick))
+        {
+            var pos = brickPositions[brick];
+            return new Vector2Int(pos.x, pos.y);
+        }
+        if (cachedBrickPositions.ContainsKey(brick))
+        {
+            var pos = cachedBrickPositions[brick];
+            return new Vector2Int(pos.x, pos.y);
+        }
+        return Vector2Int.zero;
+    }
+    
+    public LevelManager.BrickColor GetBrickColorCached(GameObject brick)
+    {
+        if (brickPositions.ContainsKey(brick))
+            return GetBrickColor(brick);
+        if (cachedBrickColors.ContainsKey(brick))
+            return cachedBrickColors[brick];
+        return LevelManager.BrickColor.Orange;
+    }
+    
+    public int GetBrickLayer(GameObject brick)
+    {
+        if (brickPositions.ContainsKey(brick))
+            return brickPositions[brick].z;
+        if (cachedBrickPositions.ContainsKey(brick))
+            return cachedBrickPositions[brick].z;
+        return 0;
+    }
+    
     public void UpdateBrickPosition(GameObject brick)
     {
         if (!brickPositions.ContainsKey(brick)) return;

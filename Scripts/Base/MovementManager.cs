@@ -78,7 +78,7 @@ public class MovementManager : MonoBehaviour
     void Update()
     {
         if (gameManager == null || joystick == null) return;
-        if (!gameManager.IsGameActive || gameManager.IsPaused) return;
+        if (!gameManager.IsGameActive) return;
 
         float hx = joystick.Horizontal; // -1..1
         float hy = joystick.Vertical;   // -1..1 (optional: map to forward/back grid moves)

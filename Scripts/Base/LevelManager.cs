@@ -59,8 +59,13 @@ public class LevelManager : MonoBehaviour
     [Header("UI Animation Settings")]
     public float timerPulseDuration = 1f;
     public float timerPulseScale = 1.05f;
+    // Brick count UI animations
+    public float uiSlideLeftAmount = 60f;
+    public float uiSlideDuration = 0.18f;
+    public float uiShiftDuration = 0.18f;
+    public float uiPopScale = 1.25f;
     
-    public enum BrickColor { Orange, Blue, Pink, Purple, Green, White, Gray, Brown, Black }
+    public enum BrickColor { Orange, Blue, Yellow, Purple, Green, White, Gray, Brown, Black }
     
     [System.Serializable]
     public class ColorSettings
@@ -76,7 +81,7 @@ public class LevelManager : MonoBehaviour
     {
         new ColorSettings{ colorType = BrickColor.Orange, tiling = new Vector2(1f, -0.5f), offset = new Vector2(0f, 0.5f) },
         new ColorSettings{ colorType = BrickColor.Blue, tiling = new Vector2(1.1f, -0.5f), offset = new Vector2(0f, 0.5f) },
-        new ColorSettings{ colorType = BrickColor.Pink, tiling = new Vector2(1.48f, -0.5f), offset = new Vector2(0f, 0.5f) },
+        new ColorSettings{ colorType = BrickColor.Yellow, tiling = new Vector2(1.48f, -0.5f), offset = new Vector2(0f, 0.5f) },
         new ColorSettings{ colorType = BrickColor.Purple, tiling = new Vector2(1.68f, 0f), offset = new Vector2(0f, 0.5f) },
         new ColorSettings{ colorType = BrickColor.Green, tiling = new Vector2(1.9f, -0.5f), offset = new Vector2(0f, 0.5f) },
         new ColorSettings{ colorType = BrickColor.White, tiling = new Vector2(1f, 0.5f), offset = Vector2.zero },
@@ -91,6 +96,13 @@ public class LevelManager : MonoBehaviour
     private Dictionary<BrickColor, int> destroyedBrickCounts = new Dictionary<BrickColor, int>();
     private Dictionary<BrickColor, GameObject> brickCountUIElements = new Dictionary<BrickColor, GameObject>();
     private List<GameObject> levelNumberObjects = new List<GameObject>();
+    // Track pending UI-directed particle arrivals per BRICK so we trigger OnBrickDestroyed
+    // when the last particle of EACH brick arrives (not per UI element).
+    // Key = unique brick ID, Value = remaining particle count
+    private Dictionary<int, int> pendingParticleRemaining = new Dictionary<int, int>();
+    private Dictionary<int, BrickColor> pendingParticleColor = new Dictionary<int, BrickColor>();
+    private Dictionary<int, GameObject> pendingParticleUIElement = new Dictionary<int, GameObject>();
+    private int nextBrickParticleId = 0;
     
     // Renk kısıtlaması (üst üste 3 kere aynı renk engelleme)
     private Queue<BrickColor> recentColors = new Queue<BrickColor>();
@@ -215,6 +227,8 @@ public class LevelManager : MonoBehaviour
         foreach (var brickCount in currentLevel.brickColorCounts)
         {
             GameObject uiElement = Instantiate(brickCountUIPrefab, brickCountUIPrefab.transform.parent);
+            // Ensure new UI element appears at the top (first row) by setting sibling index to 0
+            uiElement.transform.SetSiblingIndex(0);
             uiElement.SetActive(true);
             uiElement.name = $"BrickCountUI_{brickCount.color}";
             
@@ -268,13 +282,9 @@ public class LevelManager : MonoBehaviour
         
         if (remaining <= 0)
         {
-            if (countText != null) countText.gameObject.SetActive(false);
-            if (checkmark != null)
-            {
-                checkmark.gameObject.SetActive(true);
-                StartCoroutine(gameManager.ScaleUIElement(checkmark, 1.5f));
-            }
-            // Activate Tick on bricks/prefabs for this color
+            // Play the completion visual animation for this UI entry (slide left + pop)
+            StartCoroutine(PlayCountCompleteVisual(uiElement, color));
+            // Also activate tick visuals in-scene/prefabs
             ActivateColorTick(color);
         }
         else
@@ -285,6 +295,163 @@ public class LevelManager : MonoBehaviour
                 StartCoroutine(gameManager.ScaleUIElement(countText.transform, gameManager.uiScaleAmount));
             }
         }
+    }
+
+    // Register how many particles will arrive for a SPECIFIC BRICK so we only decrement
+    // the brick count once when the last particle of that brick reaches the UI.
+    // Returns a unique ID to track this brick's particles.
+    public int RegisterPendingParticlesForBrick(GameObject uiElement, BrickColor color, int count)
+    {
+        if (uiElement == null) return -1;
+        int brickId = nextBrickParticleId++;
+        pendingParticleRemaining[brickId] = Mathf.Max(1, count);
+        pendingParticleColor[brickId] = color;
+        pendingParticleUIElement[brickId] = uiElement;
+        return brickId;
+    }
+
+    // Call when an individual particle arrives at the UI. When the remaining count for
+    // that BRICK reaches zero, perform the brick-destroy bookkeeping.
+    public void NotifyParticleArrival(int brickId)
+    {
+        if (brickId < 0) return;
+        if (!pendingParticleRemaining.ContainsKey(brickId)) return;
+
+        pendingParticleRemaining[brickId]--;
+        if (pendingParticleRemaining[brickId] <= 0)
+        {
+            var color = pendingParticleColor.ContainsKey(brickId) ? pendingParticleColor[brickId] : BrickColor.Orange;
+            pendingParticleRemaining.Remove(brickId);
+            pendingParticleColor.Remove(brickId);
+            pendingParticleUIElement.Remove(brickId);
+
+            // This brick's particles all arrived - decrement count by 1
+            OnBrickDestroyed(color);
+        }
+    }
+
+    IEnumerator PlayCountCompleteVisual(GameObject uiElement, BrickColor color)
+    {
+        if (uiElement == null) yield break;
+
+        // Find background image "brick_count_background" to slide left
+        RectTransform bgRect = null;
+        var bgTf = uiElement.transform.Find("brick_count_background");
+        if (bgTf != null) bgRect = bgTf as RectTransform;
+
+        // If no background found, just destroy and shift
+        if (bgRect == null)
+        {
+            brickCountUIElements.Remove(color);
+            Destroy(uiElement);
+            StartCoroutine(ShiftRemainingBrickCountUI());
+            yield break;
+        }
+
+        Vector3 origBgPos = bgRect.localPosition;
+        Vector3 bgSlideTarget = origBgPos + Vector3.left * (uiSlideLeftAmount * 1.5f);
+
+        // Phase 1: Slide background left
+        float slideDuration = uiSlideDuration * 0.6f;
+        float elapsed = 0f;
+        while (elapsed < slideDuration)
+        {
+            if (bgRect == null) break;
+            elapsed += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, elapsed / slideDuration);
+            bgRect.localPosition = Vector3.Lerp(origBgPos, bgSlideTarget, t);
+            yield return null;
+        }
+
+        // Short delay after slide
+        yield return new WaitForSeconds(0.1f);
+
+        // Phase 2: UI Prefab destruction animation (wobble + scale down + fade)
+        RectTransform uiRect = uiElement.GetComponent<RectTransform>();
+        CanvasGroup canvasGroup = uiElement.GetComponent<CanvasGroup>();
+        if (canvasGroup == null) canvasGroup = uiElement.AddComponent<CanvasGroup>();
+
+        Vector3 origScale = uiRect != null ? uiRect.localScale : Vector3.one;
+        Vector3 origRotation = uiRect != null ? uiRect.localEulerAngles : Vector3.zero;
+        float destroyDuration = 0.35f;
+        elapsed = 0f;
+
+        while (elapsed < destroyDuration)
+        {
+            if (uiElement == null || uiRect == null) break;
+            elapsed += Time.deltaTime;
+            float t = elapsed / destroyDuration;
+
+            // Wobble effect (slight rotation oscillation)
+            float wobbleAngle = Mathf.Sin(t * Mathf.PI * 4f) * 8f * (1f - t);
+            uiRect.localEulerAngles = origRotation + new Vector3(0f, 0f, wobbleAngle);
+
+            // Scale down with slight squash
+            float scaleT = Mathf.SmoothStep(1f, 0f, t);
+            float squashX = 1f + Mathf.Sin(t * Mathf.PI * 2f) * 0.15f * (1f - t);
+            float squashY = 1f - Mathf.Sin(t * Mathf.PI * 2f) * 0.1f * (1f - t);
+            uiRect.localScale = new Vector3(origScale.x * scaleT * squashX, origScale.y * scaleT * squashY, origScale.z);
+
+            // Fade out
+            canvasGroup.alpha = 1f - t;
+
+            yield return null;
+        }
+
+        // Cleanup UI element
+        brickCountUIElements.Remove(color);
+        Destroy(uiElement);
+
+        // Shift remaining elements to fill the gap
+        StartCoroutine(ShiftRemainingBrickCountUI());
+    }
+
+    IEnumerator ShiftRemainingBrickCountUI()
+    {
+        // Build ordered list of remaining UI elements in the same order as currentLevel.brickColorCounts
+        List<GameObject> ordered = new List<GameObject>();
+        foreach (var bc in currentLevel.brickColorCounts)
+        {
+            if (brickCountUIElements.ContainsKey(bc.color))
+                ordered.Add(brickCountUIElements[bc.color]);
+        }
+
+        // Animate each to its new anchored position
+        float elapsed = 0f;
+        // capture start positions
+        List<RectTransform> rects = new List<RectTransform>();
+        List<Vector2> starts = new List<Vector2>();
+        List<Vector2> targets = new List<Vector2>();
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            var obj = ordered[i];
+            RectTransform rect = obj.GetComponent<RectTransform>();
+            if (rect == null) continue;
+            rects.Add(rect);
+            starts.Add(rect.anchoredPosition);
+            Vector2 target = new Vector2(
+                brickCountUIPrefab.GetComponent<RectTransform>().anchoredPosition.x,
+                brickCountUIPrefab.GetComponent<RectTransform>().anchoredPosition.y - (i * brickCountUISpacing)
+            );
+            targets.Add(target);
+        }
+
+        while (elapsed < uiShiftDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / uiShiftDuration));
+            for (int i = 0; i < rects.Count; i++)
+            {
+                rects[i].anchoredPosition = Vector2.Lerp(starts[i], targets[i], t);
+            }
+            yield return null;
+        }
+
+        // ensure final positions
+        for (int i = 0; i < rects.Count; i++)
+            rects[i].anchoredPosition = targets[i];
+
+        yield break;
     }
 
     private void ActivateColorTick(BrickColor color)
@@ -366,18 +533,17 @@ public class LevelManager : MonoBehaviour
     {
         while (gameManager.IsGameActive && currentTime > 0)
         {
-            if (!gameManager.IsPaused)
+            // Pause removed; timer ticks while game is active
+            currentTime -= Time.deltaTime;
+            UpdateTimerUI();
+
+            if (currentTime <= 0)
             {
-                currentTime -= Time.deltaTime;
-                UpdateTimerUI();
-                
-                if (currentTime <= 0)
-                {
-                    currentTime = 0;
-                    gameManager.LoseLevel("Süre Doldu!");
-                    yield break;
-                }
+                currentTime = 0;
+                gameManager.LoseLevel("Süre Doldu!");
+                yield break;
             }
+
             yield return null;
         }
     }
