@@ -81,7 +81,8 @@ public class LevelManager : MonoBehaviour
     {
         new ColorSettings{ colorType = BrickColor.Orange, tiling = new Vector2(1f, -0.5f), offset = new Vector2(0f, 0.5f) },
         new ColorSettings{ colorType = BrickColor.Blue, tiling = new Vector2(1.1f, -0.5f), offset = new Vector2(0f, 0.5f) },
-        new ColorSettings{ colorType = BrickColor.Yellow, tiling = new Vector2(1.48f, -0.5f), offset = new Vector2(0f, 0.5f) },
+        // Yellow appears as the pink-style tile in some assets — apply requested tiling/offset
+        new ColorSettings{ colorType = BrickColor.Yellow, tiling = new Vector2(1f, 1f), offset = new Vector2(0.7f, 0.25f) },
         new ColorSettings{ colorType = BrickColor.Purple, tiling = new Vector2(1.68f, 0f), offset = new Vector2(0f, 0.5f) },
         new ColorSettings{ colorType = BrickColor.Green, tiling = new Vector2(1.9f, -0.5f), offset = new Vector2(0f, 0.5f) },
         new ColorSettings{ colorType = BrickColor.White, tiling = new Vector2(1f, 0.5f), offset = Vector2.zero },

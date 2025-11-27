@@ -58,7 +58,9 @@ public class MenuGridManager : MonoBehaviour
             colorSettings.Add(new ColorTilingSettings { name = "Yellow", tiling = new Vector2(0.7f, -0.5f), offset = new Vector2(0f, 0.5f) });
             colorSettings.Add(new ColorTilingSettings { name = "Purple", tiling = new Vector2(1.3f, -0.5f), offset = new Vector2(0f, 0.5f) });
             colorSettings.Add(new ColorTilingSettings { name = "Cyan", tiling = new Vector2(1.5f, -0.5f), offset = new Vector2(0f, 0.5f) });
-            colorSettings.Add(new ColorTilingSettings { name = "Pink", tiling = new Vector2(1.7f, -0.5f), offset = new Vector2(0f, 0.5f) });
+            // Use game-corrected tiling/offset for Pink
+            // Pink removed - use Yellow instead
+            colorSettings.Add(new ColorTilingSettings { name = "Yellow", tiling = new Vector2(1f, 1f), offset = new Vector2(0.7f, 0.25f) });
             colorSettings.Add(new ColorTilingSettings { name = "White", tiling = new Vector2(2.1f, -0.5f), offset = new Vector2(0f, 0.5f) });
         }
 
